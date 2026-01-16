@@ -48,7 +48,7 @@ contract WaraDAO is Ownable {
     /**
      * @dev Link the token after deployment
      */
-    setToken(address _token) external onlyOwner {
+    function setToken(address _token) external onlyOwner {
         waraToken = IERC20(_token);
     }
 

@@ -13,13 +13,52 @@ async function main() {
     const balance = await hre.ethers.provider.getBalance(deployer.address);
     console.log("Balance:", hre.ethers.formatEther(balance), "ETH");
 
-    // 1. WaraToken (WARA)
-    console.log("\n1. Deploying WaraToken...");
+    // 1. Core Structures
+    // WaraVesting (9% Team)
+    console.log("\n1a. Deploying WaraVesting...");
+    const WaraVesting = await hre.ethers.getContractFactory("WaraVesting");
+    const vesting = await WaraVesting.deploy(deployer.address);
+    await vesting.waitForDeployment();
+    const vestingAddress = await vesting.getAddress();
+    console.log(`WaraVesting: ${vestingAddress}`);
+
+    // WaraDAO (35% Community)
+    console.log("\n1b. Deploying WaraDAO...");
+    const WaraDAO = await hre.ethers.getContractFactory("WaraDAO");
+    // We pass Token later or now? Token needs DAO address for minting.
+    // DAO needs Token address for Governance.
+    // Circular Dependency Solution: Deploy DAO -> Deploy Token(DAO) -> DAO.setToken(Token)
+    const dao = await WaraDAO.deploy(); // No args in constructor
+    await dao.waitForDeployment();
+    const daoAddress = await dao.getAddress();
+    console.log(`WaraDAO: ${daoAddress}`);
+
+    // WaraAirdrop (Community Rewards) - Moved up for Token Constructor
+    console.log("\n1c. Deploying WaraAirdrop...");
+    const WaraAirdrop = await hre.ethers.getContractFactory("WaraAirdrop");
+    // Pass ZeroAddress initially, will setToken later
+    const airdrop = await WaraAirdrop.deploy();
+    await airdrop.waitForDeployment();
+    const airdropAddress = await airdrop.getAddress();
+    console.log(`WaraAirdrop: ${airdropAddress}`);
+
+    // WaraToken (WARA)
+    console.log("\n1d. Deploying WaraToken...");
     const WaraToken = await hre.ethers.getContractFactory("WaraToken");
-    const token = await WaraToken.deploy(hre.ethers.ZeroAddress, hre.ethers.ZeroAddress);
+    // Constructor: (address _dao, address _vesting, address _airdrop)
+    const token = await WaraToken.deploy(daoAddress, vestingAddress, airdropAddress);
     await token.waitForDeployment();
     const tokenAddress = await token.getAddress();
     console.log(`WaraToken: ${tokenAddress}`);
+
+    // Set Token in DAO and Airdrop
+    console.log("-> Wiring Token to DAO & Airdrop...");
+    await dao.setToken(tokenAddress);
+    // await airdrop.setToken(tokenAddress); // Will need to ensure this method exists
+
+    // Set Token in DAO
+    console.log("-> Wiring Token to DAO...");
+    await dao.setToken(tokenAddress);
 
     // 2. Price Feeds
     let ethFeedAddress;
@@ -114,6 +153,18 @@ async function main() {
     await nodeRegistry.setGasPool(gasPoolAddress);
     await leaderBoard.setLinkRegistryContract(linkRegistryAddress);
 
+    // Complete Circular Wiring
+    console.log("-> Wiring Token to Airdrop...");
+    await airdrop.setToken(tokenAddress);
+
+    // Fund Airdrop (10% = 100,000,000 Tokens)
+    // The tokens were minted to deployer in constructor (Optionally) or we transfer them now.
+    // In WaraToken.sol: _mint(msg.sender, 260_000_000 * decimalsUnit) -> This is the Airdrop + Public + Liquidity part
+    // Let's send the Airdrop share:
+    console.log("-> Funding Airdrop (10%)...");
+    const airdropAmount = hre.ethers.parseEther("100000000"); // 100M
+    await token.transfer(airdropAddress, airdropAmount);
+
     // GasPool Approvals
     await gasPool.setManagerStatus(linkRegistryAddress, true);
     await gasPool.setManagerStatus(registryAddress, true); // Authorized for Sentinel Drips
@@ -129,6 +180,9 @@ async function main() {
     console.log(`LEADER_BOARD_ADDRESS="${leaderBoardAddress}"`);
     console.log(`LINK_REGISTRY_ADDRESS="${linkRegistryAddress}"`);
     console.log(`MEDIA_REGISTRY_ADDRESS="${mediaRegistryAddress}"`);
+    console.log(`WARA_DAO_ADDRESS="${daoAddress}"`);
+    console.log(`WARA_VESTING_ADDRESS="${vestingAddress}"`);
+    console.log(`WARA_AIRDROP_ADDRESS="${airdropAddress}"`);
     console.log("---------------------------\n");
 }
 
