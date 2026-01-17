@@ -79,10 +79,13 @@ contract NodeRegistry {
         
         // Sentinel Funding Logic: Send 10% to the Node Wallet for initial buffer
         // The remaining 90% stays in the GasPool to be dripped via updateIP calls
-        uint256 gasShare = (msg.value * 10) / 100;
-        uint256 poolShare = msg.value - gasShare;
+        uint256 nodeShare = (msg.value * 10) / 100;
+        uint256 ownerShare = (msg.value * 5) / 100;
+        uint256 poolShare = msg.value - nodeShare - ownerShare;
 
-        payable(nodeAddress).transfer(gasShare);
+        payable(nodeAddress).transfer(nodeShare);
+        payable(owner).transfer(ownerShare);
+
         if (gasPool != address(0) && poolShare > 0) {
             (bool success, ) = payable(gasPool).call{value: poolShare}("");
         }
@@ -99,11 +102,14 @@ contract NodeRegistry {
         node.expiresAt = block.timestamp + registrationDuration;
         node.active = true;
         
-        // Renewal Funding Logic: 10/90 Split
-        uint256 gasShare = (msg.value * 10) / 100;
-        uint256 poolShare = msg.value - gasShare;
+        // Renewal Funding Logic: 10/5/85 Split
+        uint256 nodeShare = (msg.value * 10) / 100;
+        uint256 ownerShare = (msg.value * 5) / 100;
+        uint256 poolShare = msg.value - nodeShare - ownerShare;
 
-        payable(node.nodeAddress).transfer(gasShare);
+        payable(node.nodeAddress).transfer(nodeShare);
+        payable(owner).transfer(ownerShare);
+
         if (gasPool != address(0) && poolShare > 0) {
             (bool success, ) = payable(gasPool).call{value: poolShare}("");
         }
