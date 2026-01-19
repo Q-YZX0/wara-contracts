@@ -67,8 +67,7 @@ contract WaraOracle {
 
             // LOTTERY RULE:
             uint256 selectionChance = uint256(keccak256(abi.encodePacked(jurySeed, nameHash))) % 100;
-            // RULE: If we have very few nodes, the lottery might block everyone.
-            // We allow the first 'min' signatures to bypass the lottery IF totalNodes is small.
+            
             uint256 required = (totalNodes * juryPercentage) / 100;
             if (required < 3) required = 3;
 
@@ -94,6 +93,7 @@ contract WaraOracle {
 
         latestAnswer = _price;
         latestTimestamp = _timestamp;
+        
         // 1. WARA Reward (vía LinkRegistry) - Sent to the HUMAN OPERATOR
         if (linkRegistry != address(0)) {
             bytes32 judgeNameHash = nodeRegistry.nodeAddressToNameHash(msg.sender);
@@ -111,7 +111,7 @@ contract WaraOracle {
         uint256 txFee = gasUsed * tx.gasprice;
         if (gasPool != address(0)) {
             (bool success, ) = gasPool.call(abi.encodeWithSignature("refillGas(address,uint256)", msg.sender, txFee));
-            success;
+            (success); 
             if (success) emit GasRefunded(msg.sender, txFee);
         }
 
@@ -120,15 +120,10 @@ contract WaraOracle {
 
     /**
      * @notice Calculate reward based on network size
-     * @param totalNodes Current active nodes
      */
     function getDynamicReward(uint256 totalNodes) public view returns (uint256) {
         if (totalNodes <= 5) return baseReward;
-        
-        // Decrease reward as network grows to prevent exploitation
-        // Decay: -0.001 WARA per additional node after 5
         uint256 deduction = (totalNodes - 5) * 1e15; 
-        
         if (deduction >= (baseReward - floorReward)) {
             return floorReward;
         }

@@ -9,11 +9,15 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import "./AggregatorV3Interface.sol";
+
+// Wara Oracle Interface
+interface IWaraOracle {
+    function latestAnswer() external view returns (int256);
+}
 
 contract Subscriptions is Ownable, ReentrancyGuard {
     IERC20 public waraToken;
-    AggregatorV3Interface public priceFeed;
+    IWaraOracle public priceFeed;
 
     uint256 public constant MONTHLY_PRICE_USD = 5e18; // $5 USD
     uint256 public constant SUBSCRIPTION_DURATION = 30 days;
@@ -38,8 +42,6 @@ contract Subscriptions is Ownable, ReentrancyGuard {
     mapping(address => Subscription) public subscriptions;
 
     // Hoster accounting
-    uint256 public hosterPoolBalance;
-    mapping(address => uint256) public accumulatedRewards; 
     mapping(uint256 => bool) public processedNonces;
     uint256 public totalPremiumViews;
 
@@ -47,12 +49,11 @@ contract Subscriptions is Ownable, ReentrancyGuard {
     uint256 public totalRevenue;
 
     event Subscribed(address indexed user, uint256 expiresAt, uint256 paidWARA);
-    event HosterRewardClaimed(address indexed hoster, uint256 amount);
     event PremiumViewRecorded(address indexed hoster, address indexed viewer, uint256 payment);
 
     constructor(address _waraToken, address _priceFeed, address _treasury, address _protocolCreator) Ownable(msg.sender) {
         waraToken = IERC20(_waraToken);
-        priceFeed = AggregatorV3Interface(_priceFeed);
+        priceFeed = IWaraOracle(_priceFeed);
         treasury = _treasury;
         protocolCreator = _protocolCreator;
     }
@@ -66,8 +67,6 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         require(waraToken.transferFrom(msg.sender, address(this), priceInWARA), "Transfer failed");
 
         // --- DEFLATIONARY BURN ---
-        // Burn 10% of the subscription price
-        // Limit: Only burn if total supply is > 650M (65% of initial 1B)
         uint256 burnAmount = 0;
         uint256 currentSupply = ERC20Burnable(address(waraToken)).totalSupply();
 
@@ -79,15 +78,13 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         }
         uint256 remainingRevenue = priceInWARA - burnAmount;
 
-        uint256 hosterPoolAmount = (remainingRevenue * HOSTER_POOL_SHARE) / 100;
         uint256 treasuryAmount = (remainingRevenue * TREASURY_SHARE) / 100;
         uint256 creatorAmount = (remainingRevenue * CREATOR_SHARE) / 100;
 
         require(waraToken.transfer(treasury, treasuryAmount), "Treasury fail");
         require(waraToken.transfer(protocolCreator, creatorAmount), "Creator fail");
 
-        // Add to pool (Reserva)
-        hosterPoolBalance += hosterPoolAmount;
+        totalRevenue += priceInWARA;
 
         Subscription storage sub = subscriptions[msg.sender];
         if (sub.expiresAt > block.timestamp) {
@@ -98,14 +95,59 @@ contract Subscriptions is Ownable, ReentrancyGuard {
             totalSubscribers++;
         }
         sub.totalPaid += priceInWARA;
-        totalRevenue += priceInWARA;
-        
+
         emit Subscribed(msg.sender, sub.expiresAt, priceInWARA);
     }
 
     /**
-     * @dev Records a premium view and rewards the hoster.
-     * Uses ECDSA signature from the viewer to authorize the payment.
+     * @notice Records multiple premium views and pays hosters IMMEDIATELY in a single transaction (Batch).
+     */
+    function recordPremiumViewBatch(
+        address[] calldata hosters,
+        address[] calldata viewers,
+        bytes32[] calldata contentHashes,
+        uint256[] calldata nonces,
+        bytes[] calldata signatures
+    ) external nonReentrant {
+        require(hosters.length == viewers.length && 
+                viewers.length == contentHashes.length && 
+                contentHashes.length == nonces.length && 
+                nonces.length == signatures.length, "Array mismatch");
+
+        uint256 available = waraToken.balanceOf(address(this));
+
+        for (uint256 i = 0; i < hosters.length; i++) {
+            if (!isSubscribed(viewers[i])) continue;
+            if (processedNonces[nonces[i]]) continue;
+
+            bytes32 messageHash = keccak256(abi.encodePacked(hosters[i], viewers[i], contentHashes[i], nonces[i], block.chainid));
+            bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
+            address signer = ECDSA.recover(ethSignedMessageHash, signatures[i]);
+            
+            if (signer != viewers[i]) continue;
+
+            processedNonces[nonces[i]] = true;
+
+            // Dynamic Payment Calculation
+            uint256 payment = BASE_PAYMENT_PER_VIEW;
+            if (available > POOL_HEALTH_THRESHOLD) {
+                payment = MAX_PAYMENT_PER_VIEW;
+            } else if (available > (POOL_HEALTH_THRESHOLD / 2)) {
+                payment = (BASE_PAYMENT_PER_VIEW + MAX_PAYMENT_PER_VIEW) / 2;
+            }
+
+            if (available >= payment) {
+                if (waraToken.transfer(hosters[i], payment)) {
+                    available -= payment;
+                    totalPremiumViews++;
+                    emit PremiumViewRecorded(hosters[i], viewers[i], payment);
+                }
+            }
+        }
+    }
+
+    /**
+     * @notice Single record function with IMMEDIATE payment.
      */
     function recordPremiumView(
         address hoster, 
@@ -117,41 +159,28 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         require(isSubscribed(viewer), "User not subscribed");
         require(!processedNonces[nonce], "Nonce already used");
 
-        // Verify Signature: viewer must sign (hoster, viewer, contentHash, nonce, chainId)
         bytes32 messageHash = keccak256(abi.encodePacked(hoster, viewer, contentHash, nonce, block.chainid));
         bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
-        
         address signer = ECDSA.recover(ethSignedMessageHash, signature);
         require(signer == viewer, "Invalid signature from viewer");
 
         processedNonces[nonce] = true;
 
-        // --- DYNAMIC PAYMENT LOGIC ---
-        uint256 payment = BASE_PAYMENT_PER_VIEW;
+        uint256 available = waraToken.balanceOf(address(this));
         
-        if (hosterPoolBalance > POOL_HEALTH_THRESHOLD) {
+        uint256 payment = BASE_PAYMENT_PER_VIEW;
+        if (available > POOL_HEALTH_THRESHOLD) {
             payment = MAX_PAYMENT_PER_VIEW;
-        } else if (hosterPoolBalance > (POOL_HEALTH_THRESHOLD / 2)) {
+        } else if (available > (POOL_HEALTH_THRESHOLD / 2)) {
             payment = (BASE_PAYMENT_PER_VIEW + MAX_PAYMENT_PER_VIEW) / 2;
         }
 
-        require(hosterPoolBalance >= payment, "Insufficient pool balance");
+        require(available >= payment, "Insufficient pool balance");
         
-        hosterPoolBalance -= payment;
-        accumulatedRewards[hoster] += payment;
         totalPremiumViews++;
+        require(waraToken.transfer(hoster, payment), "Payment failed");
         
         emit PremiumViewRecorded(hoster, viewer, payment);
-    }
-
-    function claimHosterReward() external nonReentrant {
-        uint256 reward = accumulatedRewards[msg.sender];
-        require(reward > 0, "No rewards accumulated");
-
-        accumulatedRewards[msg.sender] = 0;
-        require(waraToken.transfer(msg.sender, reward), "Transfer failed");
-
-        emit HosterRewardClaimed(msg.sender, reward);
     }
 
     // --- Helpers ---
@@ -160,29 +189,14 @@ contract Subscriptions is Ownable, ReentrancyGuard {
     }
 
     function getCurrentPrice() public view returns (uint256) {
-        (, int256 price, , , ) = priceFeed.latestRoundData();
+        int256 price = priceFeed.latestAnswer();
         require(price > 0, "Invalid price");
-        uint8 decimals = priceFeed.decimals();
-        return (MONTHLY_PRICE_USD * (10 ** decimals)) / uint256(price);
+        uint256 waraPriceUSD = uint256(price); 
+        return (MONTHLY_PRICE_USD * 1e8) / waraPriceUSD;
     }
 
-    function getPendingReward(address hoster) external view returns (uint256) {
-        return accumulatedRewards[hoster];
-    }
-    
-    function getSubscription(address user) external view returns (bool active, uint256 expiresAt, uint256 daysRemaining, uint256 totalPaid, uint256 subscriptionCount) {
-        Subscription storage sub = subscriptions[user];
-        active = sub.expiresAt > block.timestamp;
-        expiresAt = sub.expiresAt;
-        daysRemaining = active ? (sub.expiresAt - block.timestamp) / 1 days : 0;
-        totalPaid = sub.totalPaid;
-        subscriptionCount = sub.subscriptionCount;
-    }
-    
     function getStats() external view returns (uint256, uint256, uint256, uint256, uint256) {
-        return (totalSubscribers, totalRevenue, hosterPoolBalance, totalPremiumViews, getCurrentPrice());
+        uint256 available = waraToken.balanceOf(address(this));
+        return (totalSubscribers, totalRevenue, available, totalPremiumViews, getCurrentPrice());
     }
-
-    // Batch support removed in favor of security and gas efficiency per record
-    // Recommended to be called by a relay or individual hosters
 }

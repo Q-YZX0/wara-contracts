@@ -10,8 +10,10 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-// Chainlink Price Feed Interface
-import "./AggregatorV3Interface.sol";
+// Wara Oracle Interface
+interface IWaraOracle {
+    function latestAnswer() external view returns (int256);
+}
 import "./LinkRegistry.sol";
 
 /**
@@ -23,7 +25,7 @@ contract AdManager is Ownable {
     using ECDSA for bytes32;
 
     IERC20 public waraToken;
-    AggregatorV3Interface public priceFeed; // WARA/USD price feed
+    IWaraOracle public priceFeed; // WARA/USD native price feed
     
     // Burning Mechanism: 10% of every ad campaign is burned
     uint256 public constant BURN_FEE_PERCENT = 10;
@@ -73,7 +75,7 @@ contract AdManager is Ownable {
         address _priceFeedAddress
     ) Ownable(msg.sender) {
         waraToken = IERC20(_tokenAddress);
-        priceFeed = AggregatorV3Interface(_priceFeedAddress);
+        priceFeed = IWaraOracle(_priceFeedAddress);
     }
 
     /**
@@ -92,8 +94,8 @@ contract AdManager is Ownable {
         require(duration >= 5 && duration <= 45, "Duration must be 5-45s");
         require(bytes(videoHash).length > 0, "Video hash required");
 
-        // Get current WARA price in USD (8 decimals from Chainlink)
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        // Get current WARA price in USD from our Oracle
+        int256 price = priceFeed.latestAnswer();
         require(price > 0, "Invalid price");
         
         uint256 waraPriceUSD = uint256(price); // e.g., $2.50 = 250000000 (8 decimals)
@@ -195,7 +197,7 @@ contract AdManager is Ownable {
         processedSignatures[ethSignedMessageHash] = true;
 
         // Recalculate reward
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        int256 price = priceFeed.latestAnswer();
         uint256 waraPriceUSD = uint256(price);
         
         uint256 costPerViewUSD = USD_PER_SECOND * campaign.duration;
@@ -305,7 +307,7 @@ contract AdManager is Ownable {
     function getCurrentCostPerView(uint8 duration) external view returns (uint256) {
         require(duration >= 5 && duration <= 45, "Duration must be 5-45s");
         
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        int256 price = priceFeed.latestAnswer();
         require(price > 0, "Invalid price");
         
         uint256 waraPriceUSD = uint256(price);
@@ -320,7 +322,7 @@ contract AdManager is Ownable {
      */
     function setPriceFeed(address newPriceFeed) external onlyOwner {
         require(newPriceFeed != address(0), "Invalid address");
-        priceFeed = AggregatorV3Interface(newPriceFeed);
+        priceFeed = IWaraOracle(newPriceFeed);
     }
 
     /**
@@ -401,7 +403,7 @@ contract AdManager is Ownable {
         campaign.budgetWARA += amount;
 
         // Recalculate added views based on CURRENT price
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        int256 price = priceFeed.latestAnswer();
         uint256 waraPriceUSD = uint256(price);
         uint256 costPerViewUSD = USD_PER_SECOND * campaign.duration;
         uint256 costPerViewWARA = (costPerViewUSD * 1e8) / waraPriceUSD;

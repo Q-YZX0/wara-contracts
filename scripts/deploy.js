@@ -107,6 +107,7 @@ async function main() {
     await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setRewardToken(addresses.token);
     await (await hre.ethers.getContractAt("NodeRegistry", addresses.registry)).setGasPool(addresses.gasPool);
 
+
     // 5. Oracle (Judge & Jury)
     console.log("\n--- 4. Decentralized Oracle System ---");
     const WaraOracle = await hre.ethers.getContractFactory("WaraOracle");
