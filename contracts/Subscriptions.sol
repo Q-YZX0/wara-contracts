@@ -62,6 +62,10 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         waraToken = IERC20(_token);
     }
 
+    function setPriceFeed(address _feed) external onlyOwner {
+        priceFeed = IWaraOracle(_feed);
+    }
+
     function subscribe() external nonReentrant {
         uint256 priceInWARA = getCurrentPrice();
         require(waraToken.transferFrom(msg.sender, address(this), priceInWARA), "Transfer failed");

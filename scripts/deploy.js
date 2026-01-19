@@ -1,13 +1,8 @@
 const hre = require("hardhat");
 
 /**
- * Full Clean Deployment Script - Wara Ecosystem
- * 
- * USE THIS TO DEPLOY THE NEW ARCHITECTURE:
- * - Sovereign Minting (Token points to Pools)
- * - Jury & Judge Oracle System
- * - Anti-Sybil Registry
- * - Gas Refund Pool
+ * Full Clean Deployment Script - Wara Ecosystem (Industrial Edition)
+ * Includes: Automated Uniswap Liquidity Injection
  */
 async function main() {
     const network = await hre.network.name;
@@ -17,6 +12,17 @@ async function main() {
 
     const [deployer] = await hre.ethers.getSigners();
     console.log("Deployer:", deployer.address);
+
+    const UNISWAP_ROUTER = "0xC532a74256D3Db42D0Bf7a0400fEFDbad7694008"; // Sepolia
+
+    // Minimal ABIs for liquidity injection
+    const IERC20_ABI = [
+        "function approve(address spender, uint256 amount) external returns (bool)",
+        "function balanceOf(address account) external view returns (uint256)"
+    ];
+    const ROUTER_ABI = [
+        "function addLiquidityETH(address token, uint amountTokenDesired, uint amountTokenMin, uint amountETHMin, address to, uint deadline) external payable returns (uint amountToken, uint amountETH, uint liquidity)"
+    ];
 
     // --- CLEAN CONFIG: ALL EMPTY TO FORCE FULL DEPLOY ---
     const addresses = {
@@ -29,7 +35,8 @@ async function main() {
         subscriptions: "",
         token: "",
         oracle: "",
-        adManager: ""
+        adManager: "",
+        mediaRegistry: ""
     };
 
     // 1. Framework Infrastructure
@@ -100,6 +107,42 @@ async function main() {
     addresses.token = await token.getAddress();
     console.log(`WARA Token: ${addresses.token}`);
 
+    const MediaRegistry = await hre.ethers.getContractFactory("MediaRegistry");
+    const media = await MediaRegistry.deploy(addresses.token);
+    await media.waitForDeployment();
+    addresses.mediaRegistry = await media.getAddress();
+    console.log(`MediaRegistry (Catalog): ${addresses.mediaRegistry}`);
+
+    // --- NEW: LIQUIDITY INJECTION ---
+    if (network === "sepolia" || isLocal) {
+        console.log("\n--- Injecting Uniswap Liquidity (2 ETH) ---");
+        try {
+            const waraAmount = hre.ethers.parseUnits("1000000", 18); // 1,000,000 WARA
+            const ethAmount = hre.ethers.parseUnits("2", 18); // 2 ETH
+
+            const tokenContract = new hre.ethers.Contract(addresses.token, IERC20_ABI, deployer);
+            const router = new hre.ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, deployer);
+
+            console.log(`Approving ${hre.ethers.formatUnits(waraAmount, 18)} WARA to Uniswap...`);
+            await (await tokenContract.approve(UNISWAP_ROUTER, waraAmount)).wait();
+
+            console.log(`Adding Liquidity: 2 ETH + 1,000,000 WARA...`);
+            const tx = await router.addLiquidityETH(
+                addresses.token,
+                waraAmount,
+                0, // slippage not critical for initial deploy
+                0,
+                deployer.address,
+                Math.floor(Date.now() / 1000) + 600,
+                { value: ethAmount }
+            );
+            await tx.wait();
+            console.log("✅ Uniswap Pool Liquidity Provided!");
+        } catch (e) {
+            console.warn("⚠️ Uniswap Liquidity Step failed:", e.message);
+        }
+    }
+
     // 4. Final Wiring of Core
     console.log("-> Initializing Module Connections...");
     await (await hre.ethers.getContractAt("WaraDAO", addresses.dao)).setToken(addresses.token);
@@ -120,6 +163,11 @@ async function main() {
     console.log("-> Authorizing Oracle for Rewards & Gas...");
     await (await hre.ethers.getContractAt("GasPool", addresses.gasPool)).setManagerStatus(addresses.oracle, true);
     await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setAuthorizedOracle(addresses.oracle);
+
+    // NEW: Connect Subscriptions to Oracle
+    console.log("-> Connecting Subscriptions to Price Oracle...");
+    await (await hre.ethers.getContractAt("Subscriptions", addresses.subscriptions)).setPriceFeed(addresses.oracle);
+
     await (await hre.ethers.getContractAt("WaraOracle", addresses.oracle)).setParams(
         20,
         hre.ethers.parseUnits("0.5", 18),
@@ -135,6 +183,9 @@ async function main() {
     await ad.waitForDeployment();
     addresses.adManager = await ad.getAddress();
     console.log(`AdManager: ${addresses.adManager}`);
+
+    // Connect AdManager to LinkRegistry (Important for reward resolution)
+    await (await hre.ethers.getContractAt("AdManager", addresses.adManager)).setLinkReputation(addresses.linkRegistry);
 
     console.log("\n=========================================");
     console.log("🏁 FULL ARCHITECTURE DEPLOYED SUCCESSFULLY");
