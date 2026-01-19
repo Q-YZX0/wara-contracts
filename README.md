@@ -48,4 +48,4 @@ Update your `.env` file with the following:
 ## 🛡️ Security & Trust
 Wara utilizes **Gasless Signatures (EIP-712)** for voting and ad rewards, ensuring that end-users never have to pay gas to interact with the protocol while maintaining full cryptographic security.
 
-**License**: MIT. Developed by the Muggi/Wara Community.
+**License**: MIT. Developed by the YZX0.
