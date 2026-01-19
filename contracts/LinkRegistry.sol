@@ -44,6 +44,7 @@ contract LinkRegistry {
     address public LeaderBoardContract;
     address public gasPool;
     uint256 public gasSubsidyUnit = 0.005 ether;
+    address public authorizedOracle; // The oracle allowed to trigger rewards
     
     // Reward settings
     IERC20 public rewardToken;
@@ -429,6 +430,26 @@ contract LinkRegistry {
     function setRewardToken(address newAddress) external {
         // TODO: Add access control
         rewardToken = IERC20(newAddress);
+    }
+
+    /**
+     * @notice Pay reward to an oracle judge
+     * @param judge Wallet of the judge
+     * @param amount Amount of WARA to pay
+     */
+    function payOracleReward(address judge, uint256 amount) external {
+        require(msg.sender == authorizedOracle, "Not authorized oracle");
+        require(address(rewardToken) != address(0), "Reward token not set");
+        
+        uint256 balance = rewardToken.balanceOf(address(this));
+        require(balance >= amount, "Insufficient reward pool in LinkRegistry");
+        
+        rewardToken.transfer(judge, amount);
+    }
+
+    function setAuthorizedOracle(address _oracle) external {
+        // TODO: Add access control
+        authorizedOracle = _oracle;
     }
 
     function setGasPool(address _gasPool, uint256 _subsidy) external {

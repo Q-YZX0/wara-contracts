@@ -51,7 +51,12 @@ contract GasPool is Ownable {
      */
     function refillGas(address recipient, uint256 amount) external onlyAuthorized {
         require(amount <= maxRefillAmount, "Amount exceeds limit");
-        require(block.timestamp >= lastRefill[recipient] + refillCooldown, "Cooldown active");
+        
+        // Cooldown bypass for authorized managers to allow frequent oracle updates
+        if (!authorizedManagers[msg.sender]) {
+            require(block.timestamp >= lastRefill[recipient] + refillCooldown, "Cooldown active");
+        }
+        
         require(address(this).balance >= amount, "Insufficient pool balance");
 
         lastRefill[recipient] = block.timestamp;

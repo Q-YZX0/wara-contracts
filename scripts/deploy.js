@@ -1,189 +1,145 @@
 const hre = require("hardhat");
 
 /**
- * Full Deployment Script for Wara Ecosystem
- * Works on Local Hardhat Network and Sepolia.
+ * Full Clean Deployment Script - Wara Ecosystem
+ * 
+ * USE THIS TO DEPLOY THE NEW ARCHITECTURE:
+ * - Sovereign Minting (Token points to Pools)
+ * - Jury & Judge Oracle System
+ * - Anti-Sybil Registry
+ * - Gas Refund Pool
  */
 async function main() {
     const network = await hre.network.name;
-    console.log(`🚀 Starting Full Wara Ecosystem Deployment on [${network}]...`);
+    const isLocal = network === "hardhat" || network === "localhost";
+
+    console.log(`🚀 DEPLOYING NEW WARA ARCHITECTURE ON [${network}]...`);
 
     const [deployer] = await hre.ethers.getSigners();
     console.log("Deployer:", deployer.address);
-    const balance = await hre.ethers.provider.getBalance(deployer.address);
-    console.log("Balance:", hre.ethers.formatEther(balance), "ETH");
 
-    // 1. Core Structures
-    // WaraVesting (9% Team)
-    console.log("\n1a. Deploying WaraVesting...");
+    // --- CLEAN CONFIG: ALL EMPTY TO FORCE FULL DEPLOY ---
+    const addresses = {
+        vesting: "",
+        dao: "",
+        airdrop: "",
+        registry: "",
+        gasPool: "",
+        linkRegistry: "",
+        subscriptions: "",
+        token: "",
+        oracle: "",
+        adManager: ""
+    };
+
+    // 1. Framework Infrastructure
+    console.log("\n--- 1. Infrastructure Layer ---");
+
     const WaraVesting = await hre.ethers.getContractFactory("WaraVesting");
     const vesting = await WaraVesting.deploy(deployer.address);
     await vesting.waitForDeployment();
-    const vestingAddress = await vesting.getAddress();
-    console.log(`WaraVesting: ${vestingAddress}`);
+    addresses.vesting = await vesting.getAddress();
+    console.log(`Vesting: ${addresses.vesting}`);
 
-    // WaraDAO (35% Community)
-    console.log("\n1b. Deploying WaraDAO...");
     const WaraDAO = await hre.ethers.getContractFactory("WaraDAO");
-    // We pass Token later or now? Token needs DAO address for minting.
-    // DAO needs Token address for Governance.
-    // Circular Dependency Solution: Deploy DAO -> Deploy Token(DAO) -> DAO.setToken(Token)
-    const dao = await WaraDAO.deploy(); // No args in constructor
+    const dao = await WaraDAO.deploy();
     await dao.waitForDeployment();
-    const daoAddress = await dao.getAddress();
-    console.log(`WaraDAO: ${daoAddress}`);
+    addresses.dao = await dao.getAddress();
+    console.log(`DAO: ${addresses.dao}`);
 
-    // WaraAirdrop (Community Rewards) - Moved up for Token Constructor
-    console.log("\n1c. Deploying WaraAirdrop...");
     const WaraAirdrop = await hre.ethers.getContractFactory("WaraAirdrop");
-    // Pass ZeroAddress initially, will setToken later
     const airdrop = await WaraAirdrop.deploy();
     await airdrop.waitForDeployment();
-    const airdropAddress = await airdrop.getAddress();
-    console.log(`WaraAirdrop: ${airdropAddress}`);
+    addresses.airdrop = await airdrop.getAddress();
+    console.log(`Airdrop: ${addresses.airdrop}`);
 
-    // WaraToken (WARA)
-    console.log("\n1d. Deploying WaraToken...");
-    const WaraToken = await hre.ethers.getContractFactory("WaraToken");
-    // Constructor: (address _dao, address _vesting, address _airdrop)
-    const token = await WaraToken.deploy(daoAddress, vestingAddress, airdropAddress);
-    await token.waitForDeployment();
-    const tokenAddress = await token.getAddress();
-    console.log(`WaraToken: ${tokenAddress}`);
+    const NodeRegistry = await hre.ethers.getContractFactory("NodeRegistry");
+    const registry = await NodeRegistry.deploy();
+    await registry.waitForDeployment();
+    addresses.registry = await registry.getAddress();
+    console.log(`Registry: ${addresses.registry}`);
 
-    // Set Token in DAO and Airdrop
-    console.log("-> Wiring Token to DAO & Airdrop...");
-    await dao.setToken(tokenAddress);
-    // await airdrop.setToken(tokenAddress); // Will need to ensure this method exists
-
-    // Set Token in DAO
-    console.log("-> Wiring Token to DAO...");
-    await dao.setToken(tokenAddress);
-
-    // 2. Price Feeds
-    let ethFeedAddress;
-    let waraFeedAddress;
-
-    // --- ETH/USD Feed (For Node Registration) ---
-    if (network === "sepolia") {
-        ethFeedAddress = "0x694AA1769357215DE4FAC081bf1f309aDC325306"; // Real Sepolia Chainlink Feed
-        console.log(`\n2a. Using Real ETH/USD Feed: ${ethFeedAddress}`);
-    } else {
-        console.log("\n2a. Deploying Mock ETH/USD Feed...");
-        const MockV3Aggregator = await hre.ethers.getContractFactory("MockV3Aggregator");
-        const ethMock = await MockV3Aggregator.deploy(8, 250000000000); // Fixed $2500 ETH
-        await ethMock.waitForDeployment();
-        ethFeedAddress = await ethMock.getAddress();
-        console.log(`Mock ETH Feed: ${ethFeedAddress}`);
-    }
-
-    // --- WARA/USD Feed (For Ads & Subs - FIXED @ $0.75) ---
-    console.log("\n2b. Deploying Internal WARA/USD Feed ($0.75)...");
-    const MockV3Aggregator = await hre.ethers.getContractFactory("MockV3Aggregator");
-    // $0.75 = 75,000,000 (8 decimals)
-    const waraMock = await MockV3Aggregator.deploy(8, 75000000);
-    await waraMock.waitForDeployment();
-    waraFeedAddress = await waraMock.getAddress();
-    console.log(`WARA Price Manager: ${waraFeedAddress}`);
-
-    // 3. GasPool
-    console.log("\n3. Deploying GasPool...");
     const GasPool = await hre.ethers.getContractFactory("GasPool");
     const gasPool = await GasPool.deploy();
     await gasPool.waitForDeployment();
-    const gasPoolAddress = await gasPool.getAddress();
-    console.log(`GasPool: ${gasPoolAddress}`);
+    addresses.gasPool = await gasPool.getAddress();
+    console.log(`GasPool: ${addresses.gasPool}`);
 
-    // 4. AdManager
-    console.log("\n4. Deploying AdManager...");
-    const AdManager = await hre.ethers.getContractFactory("AdManager");
-    const adManager = await AdManager.deploy(tokenAddress, waraFeedAddress);
-    await adManager.waitForDeployment();
-    const adManagerAddress = await adManager.getAddress();
-    console.log(`AdManager: ${adManagerAddress}`);
+    // 2. Specialized Pools (Need to exist for the Token to mint to them)
+    console.log("\n--- 2. Specialized Reward Pools ---");
 
-    // 5. Subscriptions
-    console.log("\n5. Deploying Subscriptions...");
-    const Subscriptions = await hre.ethers.getContractFactory("Subscriptions");
-    const subscription = await Subscriptions.deploy(
-        tokenAddress,
-        waraFeedAddress,
-        deployer.address, // Treasury
-        deployer.address  // Creator
-    );
-    await subscription.waitForDeployment();
-    const subAddress = await subscription.getAddress();
-    console.log(`Subscriptions: ${subAddress}`);
-
-    // 6. NodeRegistry
-    console.log("\n6. Deploying NodeRegistry...");
-    const NodeRegistry = await hre.ethers.getContractFactory("NodeRegistry");
-    const nodeRegistry = await NodeRegistry.deploy();
-    await nodeRegistry.waitForDeployment();
-    const registryAddress = await nodeRegistry.getAddress();
-    console.log(`NodeRegistry: ${registryAddress}`);
-
-    // 7. LeaderBoard
-    console.log("\n7. Deploying LeaderBoard...");
+    // Leaderboard needed for LinkRegistry
     const LeaderBoard = await hre.ethers.getContractFactory("LeaderBoard");
-    const leaderBoard = await LeaderBoard.deploy(deployer.address);
-    await leaderBoard.waitForDeployment();
-    const leaderBoardAddress = await leaderBoard.getAddress();
-    console.log(`LeaderBoard: ${leaderBoardAddress}`);
+    const lb = await LeaderBoard.deploy(deployer.address);
+    await lb.wait;
+    const lbAddress = await lb.getAddress();
 
-    // 8. LinkRegistry
-    console.log("\n8. Deploying LinkRegistry...");
     const LinkRegistry = await hre.ethers.getContractFactory("LinkRegistry");
-    const linkRegistry = await LinkRegistry.deploy(leaderBoardAddress, tokenAddress, gasPoolAddress);
-    await linkRegistry.waitForDeployment();
-    const linkRegistryAddress = await linkRegistry.getAddress();
-    console.log(`LinkRegistry: ${linkRegistryAddress}`);
+    const lr = await LinkRegistry.deploy(lbAddress, hre.ethers.ZeroAddress, addresses.gasPool);
+    await lr.waitForDeployment();
+    addresses.linkRegistry = await lr.getAddress();
+    console.log(`LinkRegistry (Reputation Pool): ${addresses.linkRegistry}`);
 
-    // 9. MediaRegistry (DAO Content)
-    console.log("\n9. Deploying MediaRegistry...");
-    const MediaRegistry = await hre.ethers.getContractFactory("MediaRegistry");
-    const mediaRegistry = await MediaRegistry.deploy(tokenAddress);
-    await mediaRegistry.waitForDeployment();
-    const mediaRegistryAddress = await mediaRegistry.getAddress();
-    console.log(`MediaRegistry: ${mediaRegistryAddress}`);
+    const Subscriptions = await hre.ethers.getContractFactory("Subscriptions");
+    const sub = await Subscriptions.deploy(hre.ethers.ZeroAddress, hre.ethers.ZeroAddress, deployer.address, deployer.address);
+    await sub.waitForDeployment();
+    addresses.subscriptions = await sub.getAddress();
+    console.log(`Subscriptions (Hoster Pool): ${addresses.subscriptions}`);
 
-    // --- WIRING UP ---
-    console.log("\n10. Wiring up contracts...");
-    await adManager.setLinkReputation(linkRegistryAddress);
-    await nodeRegistry.setGasPool(gasPoolAddress);
-    await leaderBoard.setLinkRegistryContract(linkRegistryAddress);
+    // 3. The Token (Sovereign Distribution)
+    console.log("\n--- 3. WARA Token (The Big Bang) ---");
+    const WaraToken = await hre.ethers.getContractFactory("WaraToken");
+    const token = await WaraToken.deploy(
+        addresses.dao,
+        addresses.vesting,
+        addresses.airdrop,
+        addresses.subscriptions,
+        addresses.linkRegistry
+    );
+    await token.waitForDeployment();
+    addresses.token = await token.getAddress();
+    console.log(`WARA Token: ${addresses.token}`);
 
-    // Complete Circular Wiring
-    console.log("-> Wiring Token to Airdrop...");
-    await airdrop.setToken(tokenAddress);
+    // 4. Final Wiring of Core
+    console.log("-> Initializing Module Connections...");
+    await (await hre.ethers.getContractAt("WaraDAO", addresses.dao)).setToken(addresses.token);
+    await (await hre.ethers.getContractAt("Subscriptions", addresses.subscriptions)).setWaraToken(addresses.token);
+    await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setRewardToken(addresses.token);
+    await (await hre.ethers.getContractAt("NodeRegistry", addresses.registry)).setGasPool(addresses.gasPool);
 
-    // Fund Airdrop (10% = 100,000,000 Tokens)
-    // The tokens were minted to deployer in constructor (Optionally) or we transfer them now.
-    // In WaraToken.sol: _mint(msg.sender, 260_000_000 * decimalsUnit) -> This is the Airdrop + Public + Liquidity part
-    // Let's send the Airdrop share:
-    console.log("-> Funding Airdrop (10%)...");
-    const airdropAmount = hre.ethers.parseEther("100000000"); // 100M
-    await token.transfer(airdropAddress, airdropAmount);
+    // 5. Oracle (Judge & Jury)
+    console.log("\n--- 4. Decentralized Oracle System ---");
+    const WaraOracle = await hre.ethers.getContractFactory("WaraOracle");
+    const oracle = await WaraOracle.deploy(addresses.registry, 75000000); // Start at $0.75
+    await oracle.waitForDeployment();
+    addresses.oracle = await oracle.getAddress();
+    console.log(`WaraOracle: ${addresses.oracle}`);
 
-    // GasPool Approvals
-    await gasPool.setManagerStatus(linkRegistryAddress, true);
-    await gasPool.setManagerStatus(registryAddress, true); // Authorized for Sentinel Drips
+    // Link Oracle to Infrastructure
+    console.log("-> Authorizing Oracle for Rewards & Gas...");
+    await (await hre.ethers.getContractAt("GasPool", addresses.gasPool)).setManagerStatus(addresses.oracle, true);
+    await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setAuthorizedOracle(addresses.oracle);
+    await (await hre.ethers.getContractAt("WaraOracle", addresses.oracle)).setParams(
+        20,
+        hre.ethers.parseUnits("0.5", 18),
+        hre.ethers.parseUnits("0.2", 18),
+        addresses.gasPool,
+        addresses.linkRegistry
+    );
 
-    console.log("All connections established (including GasPool Drip System).");
+    // 6. Economy Connectors
+    console.log("\n--- 5. Economy Layer ---");
+    const AdManager = await hre.ethers.getContractFactory("AdManager");
+    const ad = await AdManager.deploy(addresses.token, addresses.oracle);
+    await ad.waitForDeployment();
+    addresses.adManager = await ad.getAddress();
+    console.log(`AdManager: ${addresses.adManager}`);
 
-    console.log("\n--- DEPLOYMENT COMPLETE ---");
-    console.log(`WARA_TOKEN_ADDRESS="${tokenAddress}"`);
-    console.log(`AD_MANAGER_ADDRESS="${adManagerAddress}"`);
-    console.log(`SUBSCRIPTION_ADDRESS="${subAddress}"`);
-    console.log(`NODE_REGISTRY_ADDRESS="${registryAddress}"`);
-    console.log(`GAS_POOL_ADDRESS="${gasPoolAddress}"`);
-    console.log(`LEADER_BOARD_ADDRESS="${leaderBoardAddress}"`);
-    console.log(`LINK_REGISTRY_ADDRESS="${linkRegistryAddress}"`);
-    console.log(`MEDIA_REGISTRY_ADDRESS="${mediaRegistryAddress}"`);
-    console.log(`WARA_DAO_ADDRESS="${daoAddress}"`);
-    console.log(`WARA_VESTING_ADDRESS="${vestingAddress}"`);
-    console.log(`WARA_AIRDROP_ADDRESS="${airdropAddress}"`);
-    console.log("---------------------------\n");
+    console.log("\n=========================================");
+    console.log("🏁 FULL ARCHITECTURE DEPLOYED SUCCESSFULLY");
+    Object.keys(addresses).forEach(key => console.log(`${key.padEnd(14)}: ${addresses[key]}`));
+    console.log("=========================================");
+    console.log("ACTION: Update Wara/src/contracts.ts with these new addresses.");
 }
 
 main().catch((error) => {

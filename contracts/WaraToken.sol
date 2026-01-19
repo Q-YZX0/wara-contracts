@@ -17,20 +17,28 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract WaraToken is ERC20, ERC20Burnable, Ownable, ERC20Permit, ERC20Votes {
     
-    // Sepolia Infrastructure Addresses
-    address public constant HOSTER_POOL = 0xD21908d71da5422aF922139491F5c5c8120FCB43;
-    address public constant REPUTATION_POOL = 0x2761768C62f885058e191f2441d41fadfBC2a3BF;
-
-    // Deflationary Logic: 5% of the total supply is destined for future burns
-    // This reduces the circulating supply over time since there's no infinite mint.
+    // Deflationary Logic: 5% of the total supply is destined for future burns (implied by max cap vs mint)
     uint256 public constant TOTAL_SUPPLY_CAP = 1_000_000_000 * 10**18;
 
-    constructor(address _dao, address _vesting, address _airdrop) 
+    constructor(
+        address _dao, 
+        address _vesting, 
+        address _airdrop,
+        address _subscriptions,
+        address _linkRegistry
+    ) 
         ERC20("WaraCoin", "WARA") 
         ERC20Permit("WaraCoin") 
         Ownable(msg.sender) 
     {
-        require(_dao != address(0) && _vesting != address(0) && _airdrop != address(0), "Invalid pool addresses");
+        require(
+            _dao != address(0) && 
+            _vesting != address(0) && 
+            _airdrop != address(0) &&
+            _subscriptions != address(0) &&
+            _linkRegistry != address(0), 
+            "Invalid pool addresses"
+        );
         
         uint256 decimalsUnit = 10 ** decimals();
 
@@ -44,10 +52,10 @@ contract WaraToken is ERC20, ERC20Burnable, Ownable, ERC20Permit, ERC20Votes {
 
         // 3. Hoster Bootstrap (5%) -> Automated to Subscriptions contract
         // These tokens flow to hosters until premium revenue sustains the pool.
-        _mint(HOSTER_POOL, 50_000_000 * decimalsUnit);
+        _mint(_subscriptions, 50_000_000 * decimalsUnit);
 
         // 4. Reputation & Bounties (13%) -> Automated to LinkRegistry contract
-        _mint(REPUTATION_POOL, 130_000_000 * decimalsUnit);
+        _mint(_linkRegistry, 130_000_000 * decimalsUnit);
 
         // 5. Community DAO & Marketing (35%) -> Automated to WaraDAO
         _mint(_dao, 350_000_000 * decimalsUnit);

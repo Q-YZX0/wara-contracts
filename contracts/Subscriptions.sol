@@ -12,7 +12,7 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./AggregatorV3Interface.sol";
 
 contract Subscriptions is Ownable, ReentrancyGuard {
-    IERC20 public immutable waraToken;
+    IERC20 public waraToken;
     AggregatorV3Interface public priceFeed;
 
     uint256 public constant MONTHLY_PRICE_USD = 5e18; // $5 USD
@@ -55,6 +55,10 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         priceFeed = AggregatorV3Interface(_priceFeed);
         treasury = _treasury;
         protocolCreator = _protocolCreator;
+    }
+
+    function setWaraToken(address _token) external onlyOwner {
+        waraToken = IERC20(_token);
     }
 
     function subscribe() external nonReentrant {

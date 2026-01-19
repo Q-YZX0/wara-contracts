@@ -88,6 +88,7 @@ contract NodeRegistry {
 
         if (gasPool != address(0) && poolShare > 0) {
             (bool success, ) = payable(gasPool).call{value: poolShare}("");
+            success;
         }
 
         emit NodeRegistered(name, msg.sender, nodeAddress, node.expiresAt);
@@ -112,6 +113,7 @@ contract NodeRegistry {
 
         if (gasPool != address(0) && poolShare > 0) {
             (bool success, ) = payable(gasPool).call{value: poolShare}("");
+            success;
         }
 
         emit NodeRenewed(name, node.expiresAt);
@@ -131,6 +133,7 @@ contract NodeRegistry {
         if (gasPool != address(0)) {
             // Refill 0.001 ETH for IP maintenance (approx 50k gas at 20 gwei)
             (bool success, ) = gasPool.call(abi.encodeWithSignature("refillGas(address,uint256)", node.nodeAddress, 0.001 ether));
+            success;
             // We ignore failure (e.g. cooldown or empty pool)
         }
 
