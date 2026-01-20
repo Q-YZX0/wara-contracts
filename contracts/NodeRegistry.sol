@@ -17,6 +17,8 @@ contract NodeRegistry {
         uint256 expiresAt;      // Registro expira después de X días
         bool active;
         string currentIP;       // Sentinel IP
+        uint256 lastIPUpdate;   // Timestamp of last IP update
+        bool hasQualityRPC;     // Voluntary sentinel (has quality RPC access)
     }
 
     // Mapping de nameHash => Node
@@ -42,6 +44,7 @@ contract NodeRegistry {
     event NodeRenewed(string name, uint256 newExpiresAt);
     event NodeDeactivated(string name);
     event IPUpdated(string indexed name, string newIP);
+    event QualityRPCUpdated(address indexed nodeAddress, bool enabled);
     
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
@@ -72,6 +75,7 @@ contract NodeRegistry {
         node.registeredAt = block.timestamp;
         node.expiresAt = block.timestamp + registrationDuration;
         node.active = true;
+        node.lastIPUpdate = block.timestamp;
         
         nameExists[name] = true;
         activeNodeHashes.push(nameHash);
@@ -128,6 +132,7 @@ contract NodeRegistry {
         require(block.timestamp < node.expiresAt, "Subscription expired");
 
         node.currentIP = newIP;
+        node.lastIPUpdate = block.timestamp;
 
         // Auto-Refill Gas from Pool (Drip system)
         if (gasPool != address(0)) {
@@ -196,5 +201,26 @@ contract NodeRegistry {
 
     function withdraw() external onlyOwner {
         payable(owner).transfer(address(this).balance);
+    }
+
+    /**
+     * @notice Enable/disable quality RPC status (Sentinel)
+     * @param enabled True to become a Sentinel, false to opt-out
+     */
+    function setQualityRPC(bool enabled) external {
+        bytes32 nameHash = nodeAddressToNameHash[msg.sender];
+        
+        // Allow both operator and nodeAddress to set this
+        if (nameHash == bytes32(0)) {
+            // Try reverse lookup by operator
+            revert("Node not found");
+        }
+        
+        Node storage node = nodes[nameHash];
+        require(node.active, "Node not active");
+        require(msg.sender == node.operator || msg.sender == node.nodeAddress, "Unauthorized");
+        
+        node.hasQualityRPC = enabled;
+        emit QualityRPCUpdated(node.nodeAddress, enabled);
     }
 }

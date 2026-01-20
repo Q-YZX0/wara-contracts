@@ -24,97 +24,135 @@ async function main() {
         "function addLiquidityETH(address token, uint amountTokenDesired, uint amountTokenMin, uint amountETHMin, address to, uint deadline) external payable returns (uint amountToken, uint amountETH, uint liquidity)"
     ];
 
-    // --- CLEAN CONFIG: ALL EMPTY TO FORCE FULL DEPLOY ---
+    // --- EXISTING ADDRESSES (from contracts.ts) ---
+    // Only registry and oracle are empty = will be deployed
     const addresses = {
-        vesting: "",
-        dao: "",
-        airdrop: "",
-        registry: "",
-        gasPool: "",
-        linkRegistry: "",
-        subscriptions: "",
-        token: "",
-        oracle: "",
-        adManager: "",
-        mediaRegistry: ""
+        vesting: "0x7B5BeED0a933870E9A5fC6DbD28035944B4bBb1e",
+        dao: "0xFbF631CB68f88cCDb730f02A2Fb4752634F1CB3f",
+        airdrop: "0x958aedd2fE387a369AD208bF00F7e5AE19F37AEb",
+        registry: "", // WILL BE DEPLOYED
+        gasPool: "0x2cfAE62b67e1c2a5aF9e73Ac22B5cbCA8A30dAaB",
+        linkRegistry: "0x8E5c574e89ac6A8FbD7D3EB5584c628C5E7f4bCC",
+        subscriptions: "0x683A4Ed0c28F17D455cE3Ead21C372c1E6ed9524",
+        token: "0xEfC1a3dF358c4052B08406A3A530Da74eE96DA60",
+        oracle: "", // WILL BE DEPLOYED
+        adManager: "0x3B57c6e719A7b155b49E4842272F2B99E922Be4e",
+        mediaRegistry: "0x8252510Bd99D3742898a86d85403bF75759a280C"
     };
 
     // 1. Framework Infrastructure
     console.log("\n--- 1. Infrastructure Layer ---");
 
-    const WaraVesting = await hre.ethers.getContractFactory("WaraVesting");
-    const vesting = await WaraVesting.deploy(deployer.address);
-    await vesting.waitForDeployment();
-    addresses.vesting = await vesting.getAddress();
-    console.log(`Vesting: ${addresses.vesting}`);
+    if (!addresses.vesting) {
+        const WaraVesting = await hre.ethers.getContractFactory("WaraVesting");
+        const vesting = await WaraVesting.deploy(deployer.address);
+        await vesting.waitForDeployment();
+        addresses.vesting = await vesting.getAddress();
+        console.log(`Vesting: ${addresses.vesting}`);
+    } else {
+        console.log(`Vesting: ${addresses.vesting} (existing)`);
+    }
 
-    const WaraDAO = await hre.ethers.getContractFactory("WaraDAO");
-    const dao = await WaraDAO.deploy();
-    await dao.waitForDeployment();
-    addresses.dao = await dao.getAddress();
-    console.log(`DAO: ${addresses.dao}`);
+    if (!addresses.dao) {
+        const WaraDAO = await hre.ethers.getContractFactory("WaraDAO");
+        const dao = await WaraDAO.deploy();
+        await dao.waitForDeployment();
+        addresses.dao = await dao.getAddress();
+        console.log(`DAO: ${addresses.dao}`);
+    } else {
+        console.log(`DAO: ${addresses.dao} (existing)`);
+    }
 
-    const WaraAirdrop = await hre.ethers.getContractFactory("WaraAirdrop");
-    const airdrop = await WaraAirdrop.deploy();
-    await airdrop.waitForDeployment();
-    addresses.airdrop = await airdrop.getAddress();
-    console.log(`Airdrop: ${addresses.airdrop}`);
+    if (!addresses.airdrop) {
+        const WaraAirdrop = await hre.ethers.getContractFactory("WaraAirdrop");
+        const airdrop = await WaraAirdrop.deploy();
+        await airdrop.waitForDeployment();
+        addresses.airdrop = await airdrop.getAddress();
+        console.log(`Airdrop: ${addresses.airdrop}`);
+    } else {
+        console.log(`Airdrop: ${addresses.airdrop} (existing)`);
+    }
 
-    const NodeRegistry = await hre.ethers.getContractFactory("NodeRegistry");
-    const registry = await NodeRegistry.deploy();
-    await registry.waitForDeployment();
-    addresses.registry = await registry.getAddress();
-    console.log(`Registry: ${addresses.registry}`);
+    if (!addresses.registry) {
+        const NodeRegistry = await hre.ethers.getContractFactory("NodeRegistry");
+        const registry = await NodeRegistry.deploy();
+        await registry.waitForDeployment();
+        addresses.registry = await registry.getAddress();
+        console.log(`Registry: ${addresses.registry} ✨ NEW`);
+    } else {
+        console.log(`Registry: ${addresses.registry} (existing)`);
+    }
 
-    const GasPool = await hre.ethers.getContractFactory("GasPool");
-    const gasPool = await GasPool.deploy();
-    await gasPool.waitForDeployment();
-    addresses.gasPool = await gasPool.getAddress();
-    console.log(`GasPool: ${addresses.gasPool}`);
+    if (!addresses.gasPool) {
+        const GasPool = await hre.ethers.getContractFactory("GasPool");
+        const gasPool = await GasPool.deploy();
+        await gasPool.waitForDeployment();
+        addresses.gasPool = await gasPool.getAddress();
+        console.log(`GasPool: ${addresses.gasPool}`);
+    } else {
+        console.log(`GasPool: ${addresses.gasPool} (existing)`);
+    }
 
     // 2. Specialized Pools (Need to exist for the Token to mint to them)
     console.log("\n--- 2. Specialized Reward Pools ---");
 
     // Leaderboard needed for LinkRegistry
-    const LeaderBoard = await hre.ethers.getContractFactory("LeaderBoard");
-    const lb = await LeaderBoard.deploy(deployer.address);
-    await lb.wait;
-    const lbAddress = await lb.getAddress();
+    let lbAddress;
+    if (!addresses.linkRegistry) {
+        const LeaderBoard = await hre.ethers.getContractFactory("LeaderBoard");
+        const lb = await LeaderBoard.deploy(deployer.address);
+        await lb.waitForDeployment();
+        lbAddress = await lb.getAddress();
 
-    const LinkRegistry = await hre.ethers.getContractFactory("LinkRegistry");
-    const lr = await LinkRegistry.deploy(lbAddress, hre.ethers.ZeroAddress, addresses.gasPool);
-    await lr.waitForDeployment();
-    addresses.linkRegistry = await lr.getAddress();
-    console.log(`LinkRegistry (Reputation Pool): ${addresses.linkRegistry}`);
+        const LinkRegistry = await hre.ethers.getContractFactory("LinkRegistry");
+        const lr = await LinkRegistry.deploy(lbAddress, hre.ethers.ZeroAddress, addresses.gasPool);
+        await lr.waitForDeployment();
+        addresses.linkRegistry = await lr.getAddress();
+        console.log(`LinkRegistry (Reputation Pool): ${addresses.linkRegistry}`);
+    } else {
+        console.log(`LinkRegistry (Reputation Pool): ${addresses.linkRegistry} (existing)`);
+    }
 
-    const Subscriptions = await hre.ethers.getContractFactory("Subscriptions");
-    const sub = await Subscriptions.deploy(hre.ethers.ZeroAddress, hre.ethers.ZeroAddress, deployer.address, deployer.address);
-    await sub.waitForDeployment();
-    addresses.subscriptions = await sub.getAddress();
-    console.log(`Subscriptions (Hoster Pool): ${addresses.subscriptions}`);
+    if (!addresses.subscriptions) {
+        const Subscriptions = await hre.ethers.getContractFactory("Subscriptions");
+        const sub = await Subscriptions.deploy(hre.ethers.ZeroAddress, hre.ethers.ZeroAddress, deployer.address, deployer.address);
+        await sub.waitForDeployment();
+        addresses.subscriptions = await sub.getAddress();
+        console.log(`Subscriptions (Hoster Pool): ${addresses.subscriptions}`);
+    } else {
+        console.log(`Subscriptions (Hoster Pool): ${addresses.subscriptions} (existing)`);
+    }
 
     // 3. The Token (Sovereign Distribution)
     console.log("\n--- 3. WARA Token (The Big Bang) ---");
-    const WaraToken = await hre.ethers.getContractFactory("WaraToken");
-    const token = await WaraToken.deploy(
-        addresses.dao,
-        addresses.vesting,
-        addresses.airdrop,
-        addresses.subscriptions,
-        addresses.linkRegistry
-    );
-    await token.waitForDeployment();
-    addresses.token = await token.getAddress();
-    console.log(`WARA Token: ${addresses.token}`);
+    if (!addresses.token) {
+        const WaraToken = await hre.ethers.getContractFactory("WaraToken");
+        const token = await WaraToken.deploy(
+            addresses.dao,
+            addresses.vesting,
+            addresses.airdrop,
+            addresses.subscriptions,
+            addresses.linkRegistry
+        );
+        await token.waitForDeployment();
+        addresses.token = await token.getAddress();
+        console.log(`WARA Token: ${addresses.token}`);
+    } else {
+        console.log(`WARA Token: ${addresses.token} (existing)`);
+    }
 
-    const MediaRegistry = await hre.ethers.getContractFactory("MediaRegistry");
-    const media = await MediaRegistry.deploy(addresses.token);
-    await media.waitForDeployment();
-    addresses.mediaRegistry = await media.getAddress();
-    console.log(`MediaRegistry (Catalog): ${addresses.mediaRegistry}`);
+    if (!addresses.mediaRegistry) {
+        const MediaRegistry = await hre.ethers.getContractFactory("MediaRegistry");
+        const media = await MediaRegistry.deploy(addresses.token);
+        await media.waitForDeployment();
+        addresses.mediaRegistry = await media.getAddress();
+        console.log(`MediaRegistry (Catalog): ${addresses.mediaRegistry}`);
+    } else {
+        console.log(`MediaRegistry (Catalog): ${addresses.mediaRegistry} (existing)`);
+    }
 
-    // --- NEW: LIQUIDITY INJECTION ---
-    if (network === "sepolia" || isLocal) {
+    // --- LIQUIDITY INJECTION (Skip if token already existed) ---
+    if ((network === "sepolia" || isLocal) && !addresses.token) {
         console.log("\n--- Injecting Uniswap Liquidity (2 ETH) ---");
         try {
             const waraAmount = hre.ethers.parseUnits("1000000", 18); // 1,000,000 WARA
@@ -143,49 +181,70 @@ async function main() {
         }
     }
 
-    // 4. Final Wiring of Core
+    // 4. Final Wiring of Core (Only if contracts were just deployed)
     console.log("-> Initializing Module Connections...");
-    await (await hre.ethers.getContractAt("WaraDAO", addresses.dao)).setToken(addresses.token);
-    await (await hre.ethers.getContractAt("Subscriptions", addresses.subscriptions)).setWaraToken(addresses.token);
-    await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setRewardToken(addresses.token);
-    await (await hre.ethers.getContractAt("NodeRegistry", addresses.registry)).setGasPool(addresses.gasPool);
+    if (!addresses.dao) {
+        await (await hre.ethers.getContractAt("WaraDAO", addresses.dao)).setToken(addresses.token);
+    }
+    if (!addresses.subscriptions) {
+        await (await hre.ethers.getContractAt("Subscriptions", addresses.subscriptions)).setWaraToken(addresses.token);
+    }
+    if (!addresses.linkRegistry) {
+        await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setRewardToken(addresses.token);
+    }
+    if (!addresses.registry) {
+        await (await hre.ethers.getContractAt("NodeRegistry", addresses.registry)).setGasPool(addresses.gasPool);
+    }
 
 
-    // 5. Oracle (Judge & Jury)
+    // 5. Oracle (Judge & Jury) - ALWAYS DEPLOY IF EMPTY
     console.log("\n--- 4. Decentralized Oracle System ---");
-    const WaraOracle = await hre.ethers.getContractFactory("WaraOracle");
-    const oracle = await WaraOracle.deploy(addresses.registry, 75000000); // Start at $0.75
-    await oracle.waitForDeployment();
-    addresses.oracle = await oracle.getAddress();
-    console.log(`WaraOracle: ${addresses.oracle}`);
+    if (!addresses.oracle) {
+        const WaraOracle = await hre.ethers.getContractFactory("WaraOracle");
+        const oracle = await WaraOracle.deploy(addresses.registry, 75000000); // Start at $0.75
+        await oracle.waitForDeployment();
+        addresses.oracle = await oracle.getAddress();
+        console.log(`WaraOracle: ${addresses.oracle} ✨ NEW (Smart Committee)`);
 
-    // Link Oracle to Infrastructure
-    console.log("-> Authorizing Oracle for Rewards & Gas...");
-    await (await hre.ethers.getContractAt("GasPool", addresses.gasPool)).setManagerStatus(addresses.oracle, true);
-    await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setAuthorizedOracle(addresses.oracle);
+        // Link Oracle to Infrastructure
+        console.log("-> Authorizing Oracle for Rewards & Gas...");
+        await (await hre.ethers.getContractAt("GasPool", addresses.gasPool)).setManagerStatus(addresses.oracle, true);
+        await (await hre.ethers.getContractAt("LinkRegistry", addresses.linkRegistry)).setAuthorizedOracle(addresses.oracle);
 
-    // NEW: Connect Subscriptions to Oracle
-    console.log("-> Connecting Subscriptions to Price Oracle...");
-    await (await hre.ethers.getContractAt("Subscriptions", addresses.subscriptions)).setPriceFeed(addresses.oracle);
+        // Connect Subscriptions to Oracle
+        console.log("-> Connecting Subscriptions to Price Oracle...");
+        await (await hre.ethers.getContractAt("Subscriptions", addresses.subscriptions)).setPriceFeed(addresses.oracle);
 
-    await (await hre.ethers.getContractAt("WaraOracle", addresses.oracle)).setParams(
-        20,
-        hre.ethers.parseUnits("0.5", 18),
-        hre.ethers.parseUnits("0.2", 18),
-        addresses.gasPool,
-        addresses.linkRegistry
-    );
+        await (await hre.ethers.getContractAt("WaraOracle", addresses.oracle)).setParams(
+            20,
+            hre.ethers.parseUnits("0.5", 18),
+            hre.ethers.parseUnits("0.2", 18),
+            addresses.gasPool,
+            addresses.linkRegistry
+        );
+    } else {
+        console.log(`WaraOracle: ${addresses.oracle} (existing)`);
+    }
 
     // 6. Economy Connectors
     console.log("\n--- 5. Economy Layer ---");
-    const AdManager = await hre.ethers.getContractFactory("AdManager");
-    const ad = await AdManager.deploy(addresses.token, addresses.oracle);
-    await ad.waitForDeployment();
-    addresses.adManager = await ad.getAddress();
-    console.log(`AdManager: ${addresses.adManager}`);
+    if (!addresses.adManager) {
+        const AdManager = await hre.ethers.getContractFactory("AdManager");
+        const ad = await AdManager.deploy(addresses.token, addresses.oracle);
+        await ad.waitForDeployment();
+        addresses.adManager = await ad.getAddress();
+        console.log(`AdManager: ${addresses.adManager}`);
 
-    // Connect AdManager to LinkRegistry (Important for reward resolution)
-    await (await hre.ethers.getContractAt("AdManager", addresses.adManager)).setLinkReputation(addresses.linkRegistry);
+        // Connect AdManager to LinkRegistry (Important for reward resolution)
+        await (await hre.ethers.getContractAt("AdManager", addresses.adManager)).setLinkReputation(addresses.linkRegistry);
+    } else {
+        console.log(`AdManager: ${addresses.adManager} (existing)`);
+        // Update oracle reference if oracle was just deployed
+        if (!addresses.oracle) {
+            console.log("-> Updating AdManager oracle reference...");
+            await (await hre.ethers.getContractAt("AdManager", addresses.adManager)).setPriceFeed(addresses.oracle);
+        }
+    }
 
     console.log("\n=========================================");
     console.log("🏁 FULL ARCHITECTURE DEPLOYED SUCCESSFULLY");

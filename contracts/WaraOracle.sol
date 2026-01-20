@@ -25,6 +25,13 @@ contract WaraOracle {
     uint256 public baseReward = 0.5 * 10**18; // 0.5 WARA starting reward
     uint256 public floorReward = 0.2 * 10**18; // 0.2 WARA minimum reward
 
+    struct JudgeInfo {
+        address nodeAddress;
+        string name;
+        string ip;
+        uint256 rank;
+    }
+
     event PriceUpdated(int256 price, uint256 timestamp, address indexed judge);
     event GasRefunded(address indexed judge, uint256 amount);
 
@@ -34,6 +41,116 @@ contract WaraOracle {
         latestTimestamp = block.timestamp;
     }
 
+    /**
+     * @notice Returns the 10 elected judges for the current cycle based on recent activity.
+     */
+    function getElectedJudges() public view returns (JudgeInfo[10] memory elected) {
+        uint256 total = nodeRegistry.getActiveNodeCount();
+        if (total == 0) return elected;
+
+        // Use a cycle-based seed (changes every 10 minutes)
+        uint256 cycleId = block.timestamp / 10 minutes;
+        bytes32 seed = keccak256(abi.encodePacked(cycleId, address(nodeRegistry)));
+        
+        uint256 found = 0;
+        uint256 startIndex = uint256(seed) % total;
+        
+        // Iterate to find 10 warm nodes (updated IP in the last 24 hours)
+        for (uint256 i = 0; i < total && found < 10; i++) {
+            uint256 idx = (startIndex + i) % total;
+            bytes32 nameHash = nodeRegistry.activeNodeHashes(idx);
+            
+            (string memory name, address operator, address nodeAddress, ,uint256 expiresAt, bool active, string memory currentIP, uint256 lastUpdate,) = nodeRegistry.nodes(nameHash);
+            
+            // Criteria: Active, not expired, and updated within last 24h
+            if (active && expiresAt > block.timestamp && (block.timestamp - lastUpdate) < 24 hours) {
+                elected[found] = JudgeInfo({
+                    nodeAddress: nodeAddress,
+                    name: name,
+                    ip: currentIP,
+                    rank: found
+                });
+                found++;
+            }
+        }
+    }
+
+    /**
+     * @notice Returns the list of jury members selected by lottery for the current cycle
+     * @dev Uses the same lottery logic as submitPrice to determine valid jury members
+     * @return juryAddresses Array of node addresses selected as jury
+     * @return juryIPs Array of IP addresses corresponding to jury members
+     * @return juryNames Array of node names corresponding to jury members
+     */
+    function getElectedJury() public view returns (
+        address[] memory juryAddresses, 
+        string[] memory juryIPs,
+        string[] memory juryNames
+    ) {
+        uint256 total = nodeRegistry.getActiveNodeCount();
+        if (total == 0) {
+            return (new address[](0), new string[](0), new string[](0));
+        }
+
+        // Use same seed as submitPrice would use
+        bytes32 jurySeed = blockhash(block.number - 1);
+        if (jurySeed == bytes32(0)) {
+            jurySeed = keccak256(abi.encodePacked(block.timestamp, block.prevrandao));
+        }
+
+        // Calculate how many jury members we need (20% of total, minimum 3)
+        uint256 required = (total * juryPercentage) / 100;
+        if (required < 3) required = 3;
+
+        // Temporary arrays (max size = total nodes)
+        address[] memory tempAddresses = new address[](total);
+        string[] memory tempIPs = new string[](total);
+        string[] memory tempNames = new string[](total);
+        uint256 count = 0;
+
+        // Iterate through all active nodes and select based on lottery
+        for (uint256 i = 0; i < total; i++) {
+            bytes32 nameHash = nodeRegistry.activeNodeHashes(i);
+            
+            (
+                string memory name,
+                ,
+                address nodeAddress,
+                ,
+                uint256 expiresAt,
+                bool active,
+                string memory currentIP,
+                ,
+            ) = nodeRegistry.nodes(nameHash);
+
+            // Skip inactive or expired nodes
+            if (!active || expiresAt <= block.timestamp) continue;
+
+            // Apply lottery rule (same as in submitPrice)
+            uint256 selectionChance = uint256(keccak256(abi.encodePacked(jurySeed, nameHash))) % 100;
+            
+            // If selected by lottery, add to jury
+            if (selectionChance < juryPercentage) {
+                tempAddresses[count] = nodeAddress;
+                tempIPs[count] = currentIP;
+                tempNames[count] = name;
+                count++;
+            }
+        }
+
+        // Resize arrays to actual count
+        juryAddresses = new address[](count);
+        juryIPs = new string[](count);
+        juryNames = new string[](count);
+        
+        for (uint256 i = 0; i < count; i++) {
+            juryAddresses[i] = tempAddresses[i];
+            juryIPs[i] = tempIPs[i];
+            juryNames[i] = tempNames[i];
+        }
+    }
+
+
     function submitPrice(
         int256 _price, 
         uint256 _timestamp, 
@@ -42,6 +159,24 @@ contract WaraOracle {
         uint256 startGas = gasleft();
         require(_timestamp > latestTimestamp, "Old data");
         require(_timestamp <= block.timestamp + 5 minutes, "Future data");
+
+        // --- ELECTED JUDGE & TIME-SLOT VALIDATION ---
+        JudgeInfo[10] memory electedWorkforce = getElectedJudges();
+        bool isElected = false;
+        uint256 myRank = 0;
+        
+        for (uint256 i = 0; i < 10; i++) {
+            if (electedWorkforce[i].nodeAddress == msg.sender) {
+                isElected = true;
+                myRank = i;
+                break;
+            }
+        }
+        require(isElected, "Not an elected Judge for this cycle");
+
+        // Window logic: 1 minute per rank
+        uint256 cycleStartTime = (block.timestamp / 10 minutes) * 10 minutes;
+        require(block.timestamp >= cycleStartTime + (myRank * 1 minutes), "It is not your turn yet");
 
         uint256 totalNodes = nodeRegistry.getActiveNodeCount();
         require(totalNodes > 0, "No nodes");
@@ -61,7 +196,7 @@ contract WaraOracle {
             bytes32 nameHash = nodeRegistry.nodeAddressToNameHash(signer);
             if (nameHash == bytes32(0)) continue; 
             
-            (string memory name,,,,,,) = nodeRegistry.nodes(nameHash);
+            (string memory name,,,,,,,,) = nodeRegistry.nodes(nameHash);
             (address operator,, uint256 expiresAt, bool active, string memory currentIP) = nodeRegistry.getNode(name);
             if (!active || expiresAt <= block.timestamp) continue;
 
@@ -97,7 +232,7 @@ contract WaraOracle {
         // 1. WARA Reward (vía LinkRegistry) - Sent to the HUMAN OPERATOR
         if (linkRegistry != address(0)) {
             bytes32 judgeNameHash = nodeRegistry.nodeAddressToNameHash(msg.sender);
-            (string memory judgeName,,,,,,) = nodeRegistry.nodes(judgeNameHash);
+            (string memory judgeName,,,,,,,,) = nodeRegistry.nodes(judgeNameHash);
             (address judgeOperator,,,,) = nodeRegistry.getNode(judgeName);
             
             uint256 reward = getDynamicReward(totalNodes);
