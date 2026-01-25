@@ -32,6 +32,8 @@ contract NodeRegistry {
     
     // Array de nombres activos
     bytes32[] public activeNodeHashes;
+    // Mapping internal para busqueda O(1) en eliminacion
+    mapping(bytes32 => uint256) private activeNodeIndices;
     
     // Fee de registro
     uint256 public registrationFee = 0.001 ether;
@@ -79,6 +81,7 @@ contract NodeRegistry {
         
         nameExists[name] = true;
         activeNodeHashes.push(nameHash);
+        activeNodeIndices[nameHash] = activeNodeHashes.length - 1;
         nodeAddressToNameHash[nodeAddress] = nameHash;
         
         // Sentinel Funding Logic: Send 10% to the Node Wallet for initial buffer
@@ -105,7 +108,13 @@ contract NodeRegistry {
         require(msg.value >= registrationFee, "Insufficient fee");
         
         node.expiresAt = block.timestamp + registrationDuration;
-        node.active = true;
+        
+        // If it was inactive (removed from list), add it back
+        if (!node.active) {
+            activeNodeHashes.push(nameHash);
+            activeNodeIndices[nameHash] = activeNodeHashes.length - 1;
+            node.active = true;
+        }
         
         // Renewal Funding Logic: 10/5/85 Split
         uint256 nodeShare = (msg.value * 10) / 100;
@@ -149,6 +158,28 @@ contract NodeRegistry {
         bytes32 nameHash = keccak256(abi.encodePacked(name));
         Node storage node = nodes[nameHash];
         require(node.operator == msg.sender, "Not node operator");
+        require(node.active, "Node already inactive");
+
+        // O(1) Removal Logic (Swap and Pop)
+        uint256 indexToRemove = activeNodeIndices[nameHash];
+        uint256 lastIndex = activeNodeHashes.length - 1;
+
+        // Sanity check: ensure the mapping points to the correct hash
+        require(activeNodeHashes[indexToRemove] == nameHash, "Registry integrity error");
+
+        if (indexToRemove != lastIndex) {
+            bytes32 lastNodeHash = activeNodeHashes[lastIndex];
+            
+            // Move the last element to the slot to remove
+            activeNodeHashes[indexToRemove] = lastNodeHash;
+            // Update the index of the moved element
+            activeNodeIndices[lastNodeHash] = indexToRemove;
+        }
+
+        // Remove the last element
+        activeNodeHashes.pop();
+        delete activeNodeIndices[nameHash];
+
         node.active = false;
         emit NodeDeactivated(name);
     }

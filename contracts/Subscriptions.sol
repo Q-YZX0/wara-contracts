@@ -42,7 +42,7 @@ contract Subscriptions is Ownable, ReentrancyGuard {
     mapping(address => Subscription) public subscriptions;
 
     // Hoster accounting
-    mapping(uint256 => bool) public processedNonces;
+    mapping(bytes32 => bool) public processedSignatures;
     uint256 public totalPremiumViews;
 
     uint256 public totalSubscribers;
@@ -50,6 +50,7 @@ contract Subscriptions is Ownable, ReentrancyGuard {
 
     event Subscribed(address indexed user, uint256 expiresAt, uint256 paidWARA);
     event PremiumViewRecorded(address indexed hoster, address indexed viewer, uint256 payment);
+    event PaymentFailed(address indexed hoster, uint256 amount);
 
     constructor(address _waraToken, address _priceFeed, address _treasury, address _protocolCreator) Ownable(msg.sender) {
         waraToken = IERC20(_waraToken);
@@ -122,15 +123,17 @@ contract Subscriptions is Ownable, ReentrancyGuard {
 
         for (uint256 i = 0; i < hosters.length; i++) {
             if (!isSubscribed(viewers[i])) continue;
-            if (processedNonces[nonces[i]]) continue;
 
             bytes32 messageHash = keccak256(abi.encodePacked(hosters[i], viewers[i], contentHashes[i], nonces[i], block.chainid));
             bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
+            
+            if (processedSignatures[ethSignedMessageHash]) continue;
+            
             address signer = ECDSA.recover(ethSignedMessageHash, signatures[i]);
             
             if (signer != viewers[i]) continue;
 
-            processedNonces[nonces[i]] = true;
+            processedSignatures[ethSignedMessageHash] = true;
 
             // Dynamic Payment Calculation
             uint256 payment = BASE_PAYMENT_PER_VIEW;
@@ -141,10 +144,17 @@ contract Subscriptions is Ownable, ReentrancyGuard {
             }
 
             if (available >= payment) {
-                if (waraToken.transfer(hosters[i], payment)) {
+                // Try-Catch transfer logic
+                (bool success, bytes memory data) = address(waraToken).call(
+                    abi.encodeWithSelector(IERC20.transfer.selector, hosters[i], payment)
+                );
+                
+                if (success && (data.length == 0 || abi.decode(data, (bool)))) {
                     available -= payment;
                     totalPremiumViews++;
                     emit PremiumViewRecorded(hosters[i], viewers[i], payment);
+                } else {
+                    emit PaymentFailed(hosters[i], payment);
                 }
             }
         }
@@ -161,14 +171,16 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         bytes calldata signature
     ) external nonReentrant {
         require(isSubscribed(viewer), "User not subscribed");
-        require(!processedNonces[nonce], "Nonce already used");
 
         bytes32 messageHash = keccak256(abi.encodePacked(hoster, viewer, contentHash, nonce, block.chainid));
         bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
+        
+        require(!processedSignatures[ethSignedMessageHash], "Signature already processed");
+        
         address signer = ECDSA.recover(ethSignedMessageHash, signature);
         require(signer == viewer, "Invalid signature from viewer");
 
-        processedNonces[nonce] = true;
+        processedSignatures[ethSignedMessageHash] = true;
 
         uint256 available = waraToken.balanceOf(address(this));
         

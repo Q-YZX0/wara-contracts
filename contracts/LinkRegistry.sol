@@ -3,6 +3,7 @@
 // Developed by YZX0 (https://github.com/Q-YZX0)
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -11,7 +12,7 @@ interface IGasPool {
     function refillGas(address recipient, uint256 amount) external;
 }
 
-contract LinkRegistry {
+contract LinkRegistry is Ownable {
     using ECDSA for bytes32;
     
     struct LinkData {
@@ -70,7 +71,7 @@ contract LinkRegistry {
         string salt
     );
     
-    constructor(address _LeaderBoardContract, address _rewardToken, address _gasPool) {
+    constructor(address _LeaderBoardContract, address _rewardToken, address _gasPool) Ownable(msg.sender) {
         LeaderBoardContract = _LeaderBoardContract;
         rewardToken = IERC20(_rewardToken);
         gasPool = _gasPool;
@@ -286,8 +287,8 @@ contract LinkRegistry {
         require(voter != address(0), "Invalid voter address");
         require(relayer != address(0), "Invalid relayer address");
         
-        // 1. Verify Signature: User must sign (linkId, contentHash, value, voter, relayer, nonce, timestamp)
-        bytes32 messageHash = keccak256(abi.encodePacked(linkId, contentHash, value, voter, relayer, nonce, timestamp));
+        // 1. Verify Signature: User must sign (linkId, contentHash, value, voter, relayer, nonce, timestamp, chainid, contract)
+        bytes32 messageHash = keccak256(abi.encodePacked(linkId, contentHash, value, voter, relayer, nonce, timestamp, block.chainid, address(this)));
         bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
         
         require(!processedSignatures[ethSignedMessageHash], "Signature already processed");
@@ -418,8 +419,7 @@ contract LinkRegistry {
      * @notice Update LeaderBoard contract address (admin only)
      * @param newAddress New contract address
      */
-    function setLeaderBoardContract(address newAddress) external {
-        // TODO: Add access control (Ownable)
+    function setLeaderBoardContract(address newAddress) external onlyOwner {
         LeaderBoardContract = newAddress;
     }
 
@@ -427,8 +427,7 @@ contract LinkRegistry {
      * @notice Set Reward Token address (admin only)
      * @param newAddress Token address
      */
-    function setRewardToken(address newAddress) external {
-        // TODO: Add access control
+    function setRewardToken(address newAddress) external onlyOwner {
         rewardToken = IERC20(newAddress);
     }
 
@@ -447,12 +446,11 @@ contract LinkRegistry {
         rewardToken.transfer(judge, amount);
     }
 
-    function setAuthorizedOracle(address _oracle) external {
-        // TODO: Add access control
+    function setAuthorizedOracle(address _oracle) external onlyOwner {
         authorizedOracle = _oracle;
     }
 
-    function setGasPool(address _gasPool, uint256 _subsidy) external {
+    function setGasPool(address _gasPool, uint256 _subsidy) external onlyOwner {
         gasPool = _gasPool;
         gasSubsidyUnit = _subsidy;
     }

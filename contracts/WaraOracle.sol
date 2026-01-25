@@ -126,11 +126,8 @@ contract WaraOracle {
             // Skip inactive or expired nodes
             if (!active || expiresAt <= block.timestamp) continue;
 
-            // Apply lottery rule (same as in submitPrice)
-            uint256 selectionChance = uint256(keccak256(abi.encodePacked(jurySeed, nameHash))) % 100;
-            
-            // If selected by lottery, add to jury
-            if (selectionChance < juryPercentage) {
+            // Apply lottery rule
+            if (_isSelectedByLottery(jurySeed, nameHash)) {
                 tempAddresses[count] = nodeAddress;
                 tempIPs[count] = currentIP;
                 tempNames[count] = name;
@@ -148,6 +145,10 @@ contract WaraOracle {
             juryIPs[i] = tempIPs[i];
             juryNames[i] = tempNames[i];
         }
+    }
+    
+    function _isSelectedByLottery(bytes32 seed, bytes32 nameHash) internal view returns (bool) {
+        return (uint256(keccak256(abi.encodePacked(seed, nameHash))) % 100) < juryPercentage;
     }
 
 
@@ -201,12 +202,12 @@ contract WaraOracle {
             if (!active || expiresAt <= block.timestamp) continue;
 
             // LOTTERY RULE:
-            uint256 selectionChance = uint256(keccak256(abi.encodePacked(jurySeed, nameHash))) % 100;
-            
             uint256 required = (totalNodes * juryPercentage) / 100;
             if (required < 3) required = 3;
 
-            if (selectionChance >= juryPercentage && validVotes >= required) continue;
+            // If NOT selected by lottery AND we already have enough votes, skip.
+            // (Allows non-jury members ONLY if we are desperate/below required)
+            if (!_isSelectedByLottery(jurySeed, nameHash) && validVotes >= required) continue;
 
             bool isSybil = false;
             for(uint256 j = 0; j < validVotes; j++) {

@@ -182,9 +182,9 @@ contract AdManager is Ownable {
         require(campaign.active, "Campaign inactive");
         require(campaign.viewsRemaining > 0, "Views exhausted");
 
-        // Reconstruct message
+        // Reconstruct message (Secure: includes ChainID and Contract Address)
         bytes32 messageHash = keccak256(
-            abi.encodePacked(campaignId, uploaderWallet, viewer, contentHash, linkId)
+            abi.encodePacked(campaignId, uploaderWallet, viewer, contentHash, linkId, block.chainid, address(this))
         );
         bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
 

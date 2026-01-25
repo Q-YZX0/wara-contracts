@@ -3,12 +3,14 @@
 // Developed by YZX0 (https://github.com/Q-YZX0)
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
+
 /**
  * @title LeaderBoard
  * @notice Global ranking system for content hosters/uploaders
  * @dev Aggregates votes from all links uploaded by each hoster
  */
-contract LeaderBoard {
+contract LeaderBoard is Ownable {
     
     struct Hoster {
         uint256 totalLinks;
@@ -43,7 +45,7 @@ contract LeaderBoard {
         _;
     }
     
-    constructor(address _LinkRegistryContract) {
+    constructor(address _LinkRegistryContract) Ownable(msg.sender) {
         LinkRegistryContract = _LinkRegistryContract;
         testMode = false;
     }
@@ -240,8 +242,7 @@ contract LeaderBoard {
      * @notice Update LinkRegistry contract address (admin only)
      * @param newAddress New contract address
      */
-    function setLinkRegistryContract(address newAddress) external {
-        // TODO: Add access control (Ownable)
+    function setLinkRegistryContract(address newAddress) external onlyOwner {
         require(newAddress != address(0), "Invalid address");
         LinkRegistryContract = newAddress;
     }
