@@ -6,6 +6,10 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+interface IVotes {
+    function getPastVotes(address account, uint256 blockNumber) external view returns (uint256);
+}
+
 /**
  * @title MediaRegistry
  * @notice Maestro de contenido con Gobernanza On-Chain.
@@ -27,6 +31,7 @@ contract MediaRegistry is Ownable {
         uint256 downvotes;
         uint256 deadline;
         address proposer;
+        uint256 snapshotBlock; // Flash Loan Protection
         bool executed;
     }
 
@@ -82,6 +87,7 @@ contract MediaRegistry is Ownable {
             downvotes: 0,
             deadline: block.timestamp + VOTING_PERIOD,
             proposer: msg.sender,
+            snapshotBlock: block.number,
             executed: false
         });
 
@@ -101,15 +107,18 @@ contract MediaRegistry is Ownable {
         require(p.deadline > 0, "Proposal not found");
         require(block.timestamp < p.deadline, "Voting closed");
         require(!hasVoted[mediaId][msg.sender], "Already voted");
-        require(waraToken.balanceOf(msg.sender) > 0, "Stake required");
+        
+        uint256 weight = IVotes(address(waraToken)).getPastVotes(msg.sender, p.snapshotBlock);
+        require(weight > 0, "No voting power (must hold WARA at snapshot)");
+
         require(_side == 1 || _side == -1, "Invalid vote");
 
         hasVoted[mediaId][msg.sender] = true;
 
         if (_side == 1) {
-            p.upvotes++;
+            p.upvotes += weight;
         } else {
-            p.downvotes++;
+            p.downvotes += weight;
         }
 
         emit Voted(mediaId, msg.sender, _side);

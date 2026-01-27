@@ -46,8 +46,10 @@ contract AdManager is Ownable {
     }
 
     mapping(uint256 => AdCampaign) public campaigns;
+    mapping(address => uint256[]) public advertiserCampaigns; // Optimization: Track IDs per user
     uint256 public nextCampaignId;
     uint256 public activeCampaignCount;
+    uint256 public totalLockedBudget; // Safety Tracker for Solvency
 
     address public linkReputation;
 
@@ -106,6 +108,7 @@ contract AdManager is Ownable {
         // Convert to WARA (adjust decimals: 18 - 8 = 10)
         // costPerViewWARA = (costPerViewUSD * 1e8) / waraPriceUSD
         uint256 costPerViewWARA = (costPerViewUSD * 1e8) / waraPriceUSD;
+        require(costPerViewWARA > 0, "Cost per view is zero");
         
         // Calculate guaranteed views
         uint256 viewsGuaranteed = budgetWARA / costPerViewWARA;
@@ -141,6 +144,8 @@ contract AdManager is Ownable {
             active: true
         });
 
+        totalLockedBudget += finalBudget; // Lock user funds
+        
         emit CampaignCreated(
             nextCampaignId,
             msg.sender,
@@ -151,6 +156,7 @@ contract AdManager is Ownable {
         );
         
         activeCampaignCount++;
+        advertiserCampaigns[msg.sender].push(nextCampaignId);
         nextCampaignId++;
     }
 
@@ -211,6 +217,7 @@ contract AdManager is Ownable {
         // Update campaign state
         campaign.viewsRemaining--;
         campaign.budgetWARA -= reward;
+        totalLockedBudget -= reward; // Decrement locked funds
 
         // Deactivate if exhausted
         if (campaign.viewsRemaining == 0) {
@@ -219,6 +226,7 @@ contract AdManager is Ownable {
             
             // Refund remaining budget
             if (campaign.budgetWARA > 0) {
+                totalLockedBudget -= campaign.budgetWARA; // Decrement locked funds (refund)
                 require(
                     waraToken.transfer(campaign.advertiser, campaign.budgetWARA),
                     "Refund failed"
@@ -227,7 +235,9 @@ contract AdManager is Ownable {
         }
 
         // Pay the content uploader
-        require(waraToken.transfer(uploaderWallet, reward), "Payment failed");
+        if (reward > 0) {
+            require(waraToken.transfer(uploaderWallet, reward), "Payment failed");
+        }
 
         emit AdViewed(campaignId, uploaderWallet, viewer, reward);
 
@@ -360,6 +370,7 @@ contract AdManager is Ownable {
         if (refundAmount > 0) {
             campaign.budgetWARA = 0;
             campaign.viewsRemaining = 0;
+            totalLockedBudget -= refundAmount; // Unlock funds
             require(waraToken.transfer(msg.sender, refundAmount), "Refund failed");
         }
     }
@@ -401,12 +412,14 @@ contract AdManager is Ownable {
 
         // Update budget
         campaign.budgetWARA += amount;
+        totalLockedBudget += amount; // Lock added funds
 
         // Recalculate added views based on CURRENT price
         int256 price = priceFeed.latestAnswer();
         uint256 waraPriceUSD = uint256(price);
         uint256 costPerViewUSD = USD_PER_SECOND * campaign.duration;
         uint256 costPerViewWARA = (costPerViewUSD * 1e8) / waraPriceUSD;
+        require(costPerViewWARA > 0, "Cost per view is zero");
         
         uint256 newViews = amount / costPerViewWARA;
         campaign.viewsRemaining += newViews;
@@ -465,23 +478,17 @@ contract AdManager is Ownable {
      * @param advertiser Address of the advertiser
      */
     function getCampaignsByAdvertiser(address advertiser) external view returns (CampaignInfo[] memory) {
-        uint256 count = 0;
-        for (uint256 i = 0; i < nextCampaignId; i++) {
-            if (campaigns[i].advertiser == advertiser) {
-                count++;
-            }
-        }
-
+        uint256[] memory userCampaignIds = advertiserCampaigns[advertiser];
+        uint256 count = userCampaignIds.length;
+        
         CampaignInfo[] memory result = new CampaignInfo[](count);
-        uint256 index = 0;
-        for (uint256 i = 0; i < nextCampaignId; i++) {
-            if (campaigns[i].advertiser == advertiser) {
-                result[index] = CampaignInfo({
-                    id: i,
-                    campaign: campaigns[i]
-                });
-                index++;
-            }
+        
+        for (uint256 i = 0; i < count; i++) {
+            uint256 id = userCampaignIds[i];
+            result[i] = CampaignInfo({
+                id: id,
+                campaign: campaigns[id]
+            });
         }
         return result;
     }
@@ -491,5 +498,19 @@ contract AdManager is Ownable {
      */
     function getReportCount(uint256 campaignId) external view returns (uint256) {
         return adReporters[campaignId].length;
+    }
+
+    /**
+     * @notice Recover stuck ERC20 tokens (Emergency/Migration)
+     * @param token Address of the token to recover
+     * @param amount Amount to recover
+     */
+    function recoverERC20(address token, uint256 amount) external onlyOwner {
+        if (token == address(waraToken)) {
+            uint256 balance = waraToken.balanceOf(address(this));
+            require(balance >= amount, "Insufficient balance");
+            require(balance - amount >= totalLockedBudget, "Cannot withdraw user funds");
+        }
+        IERC20(token).transfer(owner(), amount);
     }
 }

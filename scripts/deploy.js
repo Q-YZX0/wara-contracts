@@ -27,17 +27,17 @@ async function main() {
     // --- EXISTING ADDRESSES (from contracts.ts) ---
     // Only registry and oracle are empty = will be deployed
     const addresses = {
-        vesting: "0x7B5BeED0a933870E9A5fC6DbD28035944B4bBb1e",
-        dao: "0xFbF631CB68f88cCDb730f02A2Fb4752634F1CB3f",
-        airdrop: "0x958aedd2fE387a369AD208bF00F7e5AE19F37AEb",
+        vesting: "",
+        dao: "",
+        airdrop: "",
         registry: "", // WILL BE DEPLOYED
-        gasPool: "0x2cfAE62b67e1c2a5aF9e73Ac22B5cbCA8A30dAaB",
-        linkRegistry: "0x8E5c574e89ac6A8FbD7D3EB5584c628C5E7f4bCC",
-        subscriptions: "0x683A4Ed0c28F17D455cE3Ead21C372c1E6ed9524",
-        token: "0xEfC1a3dF358c4052B08406A3A530Da74eE96DA60",
+        gasPool: "",
+        linkRegistry: "",
+        subscriptions: "",
+        token: "",
         oracle: "", // WILL BE DEPLOYED
-        adManager: "0x3B57c6e719A7b155b49E4842272F2B99E922Be4e",
-        mediaRegistry: "0x8252510Bd99D3742898a86d85403bF75759a280C"
+        adManager: "",
+        mediaRegistry: ""
     };
 
     // 1. Framework Infrastructure

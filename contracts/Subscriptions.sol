@@ -215,4 +215,8 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         uint256 available = waraToken.balanceOf(address(this));
         return (totalSubscribers, totalRevenue, available, totalPremiumViews, getCurrentPrice());
     }
+
+    function recoverERC20(address token, uint256 amount) external onlyOwner {
+        IERC20(token).transfer(owner(), amount);
+    }
 }

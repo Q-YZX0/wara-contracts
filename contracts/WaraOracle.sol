@@ -56,11 +56,12 @@ contract WaraOracle {
         uint256 startIndex = uint256(seed) % total;
         
         // Iterate to find 10 warm nodes (updated IP in the last 24 hours)
-        for (uint256 i = 0; i < total && found < 10; i++) {
+        // Cap search at 50 to prevent Gas Limit DoS
+        for (uint256 i = 0; i < total && found < 10 && i < 50; i++) {
             uint256 idx = (startIndex + i) % total;
             bytes32 nameHash = nodeRegistry.activeNodeHashes(idx);
             
-            (string memory name, address operator, address nodeAddress, ,uint256 expiresAt, bool active, string memory currentIP, uint256 lastUpdate,) = nodeRegistry.nodes(nameHash);
+            (string memory name, , address nodeAddress, ,uint256 expiresAt, bool active, string memory currentIP, uint256 lastUpdate,) = nodeRegistry.nodes(nameHash);
             
             // Criteria: Active, not expired, and updated within last 24h
             if (active && expiresAt > block.timestamp && (block.timestamp - lastUpdate) < 24 hours) {
@@ -197,8 +198,7 @@ contract WaraOracle {
             bytes32 nameHash = nodeRegistry.nodeAddressToNameHash(signer);
             if (nameHash == bytes32(0)) continue; 
             
-            (string memory name,,,,,,,,) = nodeRegistry.nodes(nameHash);
-            (address operator,, uint256 expiresAt, bool active, string memory currentIP) = nodeRegistry.getNode(name);
+            (, address operator, , , uint256 expiresAt, bool active, string memory currentIP, ,) = nodeRegistry.nodes(nameHash);
             if (!active || expiresAt <= block.timestamp) continue;
 
             // LOTTERY RULE:
@@ -233,8 +233,7 @@ contract WaraOracle {
         // 1. WARA Reward (vía LinkRegistry) - Sent to the HUMAN OPERATOR
         if (linkRegistry != address(0)) {
             bytes32 judgeNameHash = nodeRegistry.nodeAddressToNameHash(msg.sender);
-            (string memory judgeName,,,,,,,,) = nodeRegistry.nodes(judgeNameHash);
-            (address judgeOperator,,,,) = nodeRegistry.getNode(judgeName);
+            (, address judgeOperator, , , , , , ,) = nodeRegistry.nodes(judgeNameHash);
             
             uint256 reward = getDynamicReward(totalNodes);
             if (judgeOperator != address(0)) {
@@ -273,5 +272,15 @@ contract WaraOracle {
         floorReward = _floorReward;
         gasPool = _gasPool;
         linkRegistry = _linkRegistry;
+    }
+
+    /**
+     * @notice Recover stuck ERC20 tokens
+     */
+    function recoverERC20(address token, uint256 amount) external {
+        require(msg.sender == nodeRegistry.owner(), "Only owner");
+        // IERC20 interface is needed, assume it's available or use low-level call
+        (bool success, ) = token.call(abi.encodeWithSignature("transfer(address,uint256)", msg.sender, amount));
+        require(success, "Transfer failed");
     }
 }

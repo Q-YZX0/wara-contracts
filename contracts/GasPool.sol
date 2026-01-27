@@ -67,6 +67,7 @@ contract GasPool is Ownable {
     }
 
     function withdraw(uint256 amount) external onlyOwner {
-        payable(owner()).transfer(amount);
+        (bool success, ) = payable(owner()).call{value: amount}("");
+        require(success, "Withdraw failed");
     }
 }

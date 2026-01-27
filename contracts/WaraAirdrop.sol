@@ -104,4 +104,8 @@ contract WaraAirdrop is Ownable {
     function totalRegistered() external view returns (uint256) {
         return registeredUsers.length;
     }
+
+    function recoverERC20(address token, uint256 amount) external onlyOwner {
+        IERC20(token).transfer(owner(), amount);
+    }
 }

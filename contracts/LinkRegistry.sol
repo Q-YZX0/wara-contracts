@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "./NodeRegistry.sol";
 
 interface IGasPool {
     function refillGas(address recipient, uint256 amount) external;
@@ -55,6 +56,8 @@ contract LinkRegistry is Ownable {
     // linkId = keccak256(abi.encodePacked(contentHash, uploaderWallet, salt, mediaHash))
     // This ensures uniqueness per upload instance.
     
+    NodeRegistry public nodeRegistry; // Sybil Prevention
+
     event Voted(
         bytes32 indexed linkId,
         bytes32 indexed contentHash,
@@ -338,11 +341,19 @@ contract LinkRegistry is Ownable {
         emit Voted(linkId, link.contentHash, voter, value, link.trustScore);
 
         // 3. Reward Relayer (Only for negative votes / reports)
-        if (value == -1 && address(rewardToken) != address(0)) {
-            uint256 balance = rewardToken.balanceOf(address(this));
-            if (balance >= VOTE_REWARD) {
-                rewardToken.transfer(relayer, VOTE_REWARD);
-            }
+        // 3. Reward Relayer (Only for negative votes / reports)
+        // Sybil Protection: Only pay if the USER (voter) is a registered Node
+        if (value == -1 && address(rewardToken) != address(0) && address(nodeRegistry) != address(0)) {
+             bytes32 nameHash = nodeRegistry.nodeAddressToNameHash(voter);
+             if (nameHash != bytes32(0)) {
+                 (,,,, uint256 expiresAt, bool active,,,) = nodeRegistry.nodes(nameHash);
+                 if (active && expiresAt > block.timestamp) {
+                     uint256 balance = rewardToken.balanceOf(address(this));
+                     if (balance >= VOTE_REWARD) {
+                         rewardToken.transfer(relayer, VOTE_REWARD);
+                     }
+                 }
+             }
         }
 
         // 4. Update Hoster Reputation
@@ -450,8 +461,21 @@ contract LinkRegistry is Ownable {
         authorizedOracle = _oracle;
     }
 
+    function setNodeRegistry(address _nodeRegistry) external onlyOwner {
+        nodeRegistry = NodeRegistry(_nodeRegistry);
+    }
+
     function setGasPool(address _gasPool, uint256 _subsidy) external onlyOwner {
         gasPool = _gasPool;
         gasSubsidyUnit = _subsidy;
+    }
+
+    /**
+     * @notice Recover stuck ERC20 tokens (Emergency/Migration)
+     * @param token Address of the token to recover
+     * @param amount Amount to recover
+     */
+    function recoverERC20(address token, uint256 amount) external onlyOwner {
+        IERC20(token).transfer(owner(), amount);
     }
 }

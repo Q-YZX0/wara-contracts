@@ -96,9 +96,6 @@ contract LeaderBoard is Ownable {
             h.averageScore = 50;
         }
         
-        // Update leaderboard position
-        _updateLeaderboard(hoster);
-        
         emit HosterScoreUpdated(hoster, h.averageScore, h.rank);
     }
     
@@ -135,53 +132,7 @@ contract LeaderBoard is Ownable {
             h.averageScore = 50;
         }
         
-        _updateLeaderboard(hoster);
-        
         emit HosterScoreUpdated(hoster, h.averageScore, h.rank);
-    }
-    
-    /**
-     * @notice Update leaderboard position for a hoster
-     * @param hoster Wallet address
-     */
-    function _updateLeaderboard(address hoster) private {
-        uint256 length = leaderboard.length;
-        
-        // Find current position
-        uint256 currentIndex = length;
-        for (uint256 i = 0; i < length; i++) {
-            if (leaderboard[i] == hoster) {
-                currentIndex = i;
-                break;
-            }
-        }
-        
-        if (currentIndex == length) {
-            return; // Not in leaderboard (shouldn't happen)
-        }
-        
-        uint256 hosterScore = hosters[hoster].averageScore;
-        
-        // Bubble up if score increased
-        while (currentIndex > 0 && hosters[leaderboard[currentIndex - 1]].averageScore < hosterScore) {
-            address temp = leaderboard[currentIndex - 1];
-            leaderboard[currentIndex - 1] = leaderboard[currentIndex];
-            leaderboard[currentIndex] = temp;
-            currentIndex--;
-        }
-        
-        // Bubble down if score decreased
-        while (currentIndex < length - 1 && hosters[leaderboard[currentIndex + 1]].averageScore > hosterScore) {
-            address temp = leaderboard[currentIndex + 1];
-            leaderboard[currentIndex + 1] = leaderboard[currentIndex];
-            leaderboard[currentIndex] = temp;
-            currentIndex++;
-        }
-        
-        // Recalculate ranks for ALL hosters (to fix stale ranks)
-        for (uint256 i = 0; i < length; i++) {
-            hosters[leaderboard[i]].rank = i + 1;
-        }
     }
     
     /**

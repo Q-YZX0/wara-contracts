@@ -11,6 +11,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @dev Governance contract to manage 35% of WARA supply (DAO + Marketing/Public Awareness).
  * Allows creating proposals to release funds for specific purposes.
  */
+interface IVotes {
+    function getPastVotes(address account, uint256 blockNumber) external view returns (uint256);
+}
+
 contract WaraDAO is Ownable {
     
     IERC20 public waraToken;
@@ -26,6 +30,7 @@ contract WaraDAO is Ownable {
         uint256 upvotes;
         uint256 downvotes;
         uint256 deadline;
+        uint256 snapshotBlock; // Flash Loan Protection
         bool executed;
         bool approved;
     }
@@ -71,6 +76,7 @@ contract WaraDAO is Ownable {
         p.amount = amount;
         p.pType = pType;
         p.deadline = block.timestamp + VOTING_PERIOD;
+        p.snapshotBlock = block.number;
         
         emit ProposalCreated(pId, description, recipient, amount, pType);
         return pId;
@@ -84,8 +90,9 @@ contract WaraDAO is Ownable {
         require(block.timestamp < p.deadline, "Voting period ended");
         require(!hasVoted[pId][msg.sender], "Already voted");
         
-        uint256 weight = waraToken.balanceOf(msg.sender);
-        require(weight > 0, "No voting power (must hold WARA)");
+        // Use historical voting power to prevent Flash Loan attacks
+        uint256 weight = IVotes(address(waraToken)).getPastVotes(msg.sender, p.snapshotBlock);
+        require(weight > 0, "No voting power (must hold WARA at snapshot)");
 
         if (side > 0) {
             p.upvotes += weight;

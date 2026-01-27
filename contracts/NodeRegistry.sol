@@ -3,6 +3,8 @@
 // Developed by YZX0 (https://github.com/Q-YZX0)
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 /**
  * @title NodeRegistry
  * @notice Registro descentralizado de nodos Wara para 
@@ -139,6 +141,8 @@ contract NodeRegistry {
         require(node.active, "Node not found or inactive");
         require(msg.sender == node.nodeAddress || msg.sender == node.operator, "Unauthorized");
         require(block.timestamp < node.expiresAt, "Subscription expired");
+        // Anti-Drain: Cooldown of 24h unless it's setting the first IP
+        require(bytes(node.currentIP).length == 0 || block.timestamp >= node.lastIPUpdate + 1 days, "Wait 24h between IP updates");
 
         node.currentIP = newIP;
         node.lastIPUpdate = block.timestamp;
@@ -231,7 +235,8 @@ contract NodeRegistry {
     }
 
     function withdraw() external onlyOwner {
-        payable(owner).transfer(address(this).balance);
+        (bool success, ) = payable(owner).call{value: address(this).balance}("");
+        require(success, "Withdraw failed");
     }
 
     /**
@@ -253,5 +258,12 @@ contract NodeRegistry {
         
         node.hasQualityRPC = enabled;
         emit QualityRPCUpdated(node.nodeAddress, enabled);
+    }
+
+    /**
+     * @notice Recover stuck ERC20 tokens
+     */
+    function recoverERC20(address token, uint256 amount) external onlyOwner {
+        IERC20(token).transfer(msg.sender, amount);
     }
 }
