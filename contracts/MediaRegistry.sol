@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IVotes {
     function getPastVotes(address account, uint256 blockNumber) external view returns (uint256);
+    function getPastTotalSupply(uint256 blockNumber) external view returns (uint256);
 }
 
 /**
@@ -38,13 +39,14 @@ contract MediaRegistry is Ownable {
     IERC20 public waraToken;
     uint256 public constant VOTING_PERIOD = 3 days;
     uint256 public constant EXECUTION_REWARD = 50 * 10**18;
+    uint256 public constant QUORUM_PERCENT = 1; // 1% Quorum for content
 
     mapping(bytes32 => MediaEntry) public mediaEntries;
     mapping(bytes32 => Proposal) public proposals;
     mapping(bytes32 => mapping(address => bool)) public hasVoted;
 
-    event MediaRegistered(bytes32 indexed id, string source, string externalId);
-    event ProposalCreated(bytes32 indexed id, string title, uint256 deadline);
+    event MediaRegistered(bytes32 indexed id, string source, string externalId, string title);
+    event ProposalCreated(bytes32 indexed id, string source, string externalId, string title, uint256 deadline);
     event Voted(bytes32 indexed id, address voter, int8 side);
     event ProposalExecuted(bytes32 indexed id, bool approved);
 
@@ -53,7 +55,7 @@ contract MediaRegistry is Ownable {
     }
 
     function computeMediaId(string memory _source, string memory _externalId) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(_source, ":", _externalId));
+        return keccak256(abi.encode(_source, _externalId));
     }
 
     // --- OWNER DIRECT ---
@@ -90,14 +92,8 @@ contract MediaRegistry is Ownable {
             snapshotBlock: block.number,
             executed: false
         });
-
-        // Store metadata temporarily? OR just trust the execution phase pass it again?
-        // To be safe and stateless, we usually just store the ID in proposal.
-        // But for execution we need the data.
-        // Option: Store data in a generic mapping or require it passed again at execution (verifying hash).
-        // Let's store "candidate" data? No, simpler: execution requires params matches ID.
         
-        emit ProposalCreated(mediaId, _title, block.timestamp + VOTING_PERIOD);
+        emit ProposalCreated(mediaId, _source, _externalId, _title, block.timestamp + VOTING_PERIOD);
     }
 
     function vote(string memory _source, string memory _externalId, int8 _side) external {
@@ -139,6 +135,13 @@ contract MediaRegistry is Ownable {
 
         p.executed = true;
 
+        // Check Quorum
+        uint256 totalVotes = p.upvotes + p.downvotes;
+        uint256 totalSupplySnapshot = IVotes(address(waraToken)).getPastTotalSupply(p.snapshotBlock);
+        uint256 minQuorum = (totalSupplySnapshot * QUORUM_PERCENT) / 100;
+
+        require(totalVotes >= minQuorum, "Quorum not reached");
+
         if (p.upvotes > p.downvotes) {
             // Success
             _register(mediaId, _source, _externalId, _title, _metadataHash);
@@ -167,7 +170,7 @@ contract MediaRegistry is Ownable {
             active: true,
             createdAt: block.timestamp
         });
-        emit MediaRegistered(mediaId, _source, _externalId);
+        emit MediaRegistered(mediaId, _source, _externalId, _title);
     }
 
     // --- VIEW ---

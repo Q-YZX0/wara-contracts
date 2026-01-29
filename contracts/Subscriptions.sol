@@ -37,6 +37,7 @@ contract Subscriptions is Ownable, ReentrancyGuard {
     struct Subscription {
         uint256 expiresAt;
         uint256 totalPaid;
+        uint256 totalClaimed; // Solvency Cap Tracker
         uint256 subscriptionCount;
     }
     mapping(address => Subscription) public subscriptions;
@@ -143,6 +144,11 @@ contract Subscriptions is Ownable, ReentrancyGuard {
                 payment = (BASE_PAYMENT_PER_VIEW + MAX_PAYMENT_PER_VIEW) / 2;
             }
 
+            // Solvency Cap ("Spotify Fraud" Protection)
+            Subscription storage sub = subscriptions[viewers[i]];
+            if (sub.totalClaimed + payment > (sub.totalPaid * 80) / 100) continue; // Skip if user cap reached
+            sub.totalClaimed += payment;
+
             if (available >= payment) {
                 // Try-Catch transfer logic
                 (bool success, bytes memory data) = address(waraToken).call(
@@ -190,6 +196,11 @@ contract Subscriptions is Ownable, ReentrancyGuard {
         } else if (available > (POOL_HEALTH_THRESHOLD / 2)) {
             payment = (BASE_PAYMENT_PER_VIEW + MAX_PAYMENT_PER_VIEW) / 2;
         }
+
+        // Solvency Cap
+        Subscription storage sub = subscriptions[viewer];
+        require(sub.totalClaimed + payment <= (sub.totalPaid * 80) / 100, "User cap reached");
+        sub.totalClaimed += payment;
 
         require(available >= payment, "Insufficient pool balance");
         

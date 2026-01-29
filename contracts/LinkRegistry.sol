@@ -94,6 +94,7 @@ contract LinkRegistry is Ownable {
         address hoster
     ) external returns (bytes32) {
         require(hoster != address(0), "Invalid hoster address");
+        require(hoster == msg.sender, "Cannot register for others");
         
         // Formula acorde al diseño: Hash + Hoster + Salt + MediaHash
         bytes32 linkId = keccak256(abi.encodePacked(contentHash, hoster, salt, mediaHash));
@@ -340,18 +341,15 @@ contract LinkRegistry is Ownable {
 
         emit Voted(linkId, link.contentHash, voter, value, link.trustScore);
 
-        // 3. Reward Relayer (Only for negative votes / reports)
-        // 3. Reward Relayer (Only for negative votes / reports)
-        // Sybil Protection: Only pay if the USER (voter) is a registered Node
-        if (value == -1 && address(rewardToken) != address(0) && address(nodeRegistry) != address(0)) {
-             bytes32 nameHash = nodeRegistry.nodeAddressToNameHash(voter);
-             if (nameHash != bytes32(0)) {
-                 (,,,, uint256 expiresAt, bool active,,,) = nodeRegistry.nodes(nameHash);
+        // 3. Reward Relayer (Gas Refund Only)
+        // Incentivize censorship without allowing profit looting.
+        if (value == -1 && address(nodeRegistry) != address(0) && gasPool != address(0)) {
+             bytes32 relayerNameHash = nodeRegistry.nodeAddressToNameHash(relayer);
+             if (relayerNameHash != bytes32(0)) {
+                 (,,,, uint256 expiresAt, bool active,,,) = nodeRegistry.nodes(relayerNameHash);
                  if (active && expiresAt > block.timestamp) {
-                     uint256 balance = rewardToken.balanceOf(address(this));
-                     if (balance >= VOTE_REWARD) {
-                         rewardToken.transfer(relayer, VOTE_REWARD);
-                     }
+                     // Only refund gas to active infrastructure providers
+                     _triggerGasRefill(relayer);
                  }
              }
         }

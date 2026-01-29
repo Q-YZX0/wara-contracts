@@ -32,6 +32,9 @@ contract WaraOracle {
         uint256 rank;
     }
 
+    mapping(address => uint256) public lastRewardTime;
+    uint256 public constant REWARD_COOLDOWN = 10 minutes;
+
     event PriceUpdated(int256 price, uint256 timestamp, address indexed judge);
     event GasRefunded(address indexed judge, uint256 amount);
 
@@ -55,9 +58,9 @@ contract WaraOracle {
         uint256 found = 0;
         uint256 startIndex = uint256(seed) % total;
         
-        // Iterate to find 10 warm nodes (updated IP in the last 24 hours)
-        // Cap search at 50 to prevent Gas Limit DoS
-        for (uint256 i = 0; i < total && found < 10 && i < 50; i++) {
+        // Iterate to find 10 warm nodes
+        // Use gasleft() to prevent Out-of-Gas, but allow deep searching (Anti-Zombie)
+        for (uint256 i = 0; i < total && found < 10 && gasleft() > 200000; i++) {
             uint256 idx = (startIndex + i) % total;
             bytes32 nameHash = nodeRegistry.activeNodeHashes(idx);
             
@@ -230,24 +233,29 @@ contract WaraOracle {
         latestAnswer = _price;
         latestTimestamp = _timestamp;
         
-        // 1. WARA Reward (vía LinkRegistry) - Sent to the HUMAN OPERATOR
-        if (linkRegistry != address(0)) {
-            bytes32 judgeNameHash = nodeRegistry.nodeAddressToNameHash(msg.sender);
-            (, address judgeOperator, , , , , , ,) = nodeRegistry.nodes(judgeNameHash);
-            
-            uint256 reward = getDynamicReward(totalNodes);
-            if (judgeOperator != address(0)) {
-                try ILinkRegistry(linkRegistry).payOracleReward(judgeOperator, reward) {} catch {}
-            }
-        }
+        // Cooldown Check for Rewards
+        if (block.timestamp >= lastRewardTime[msg.sender] + REWARD_COOLDOWN) {
+            lastRewardTime[msg.sender] = block.timestamp;
 
-        // 2. ETH Refund (vía GasPool) - Sent to the TECH WALLET (msg.sender)
-        uint256 gasUsed = (startGas - gasleft() + 65000); 
-        uint256 txFee = gasUsed * tx.gasprice;
-        if (gasPool != address(0)) {
-            (bool success, ) = gasPool.call(abi.encodeWithSignature("refillGas(address,uint256)", msg.sender, txFee));
-            (success); 
-            if (success) emit GasRefunded(msg.sender, txFee);
+            // 1. WARA Reward (vía LinkRegistry) - Sent to the HUMAN OPERATOR
+            if (linkRegistry != address(0)) {
+                bytes32 judgeNameHash = nodeRegistry.nodeAddressToNameHash(msg.sender);
+                (, address judgeOperator, , , , , , ,) = nodeRegistry.nodes(judgeNameHash);
+                
+                uint256 reward = getDynamicReward(totalNodes);
+                if (judgeOperator != address(0)) {
+                    try ILinkRegistry(linkRegistry).payOracleReward(judgeOperator, reward) {} catch {}
+                }
+            }
+
+            // 2. ETH Refund (vía GasPool) - Sent to the TECH WALLET (msg.sender)
+            uint256 gasUsed = (startGas - gasleft() + 65000); 
+            uint256 txFee = gasUsed * tx.gasprice;
+            if (gasPool != address(0)) {
+                (bool success, ) = gasPool.call(abi.encodeWithSignature("refillGas(address,uint256)", msg.sender, txFee));
+                (success); 
+                if (success) emit GasRefunded(msg.sender, txFee);
+            }
         }
 
         emit PriceUpdated(_price, _timestamp, msg.sender);

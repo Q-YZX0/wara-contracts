@@ -13,6 +13,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  */
 interface IVotes {
     function getPastVotes(address account, uint256 blockNumber) external view returns (uint256);
+    function getPastTotalSupply(uint256 blockNumber) external view returns (uint256);
 }
 
 contract WaraDAO is Ownable {
@@ -114,6 +115,13 @@ contract WaraDAO is Ownable {
 
         p.executed = true;
         
+        // Check Quorum
+        uint256 totalVotes = p.upvotes + p.downvotes;
+        uint256 totalSupplySnapshot = IVotes(address(waraToken)).getPastTotalSupply(p.snapshotBlock);
+        uint256 minQuorum = (totalSupplySnapshot * QUORUM_PERCENT) / 100;
+
+        require(totalVotes >= minQuorum, "Quorum not reached");
+
         // Simple Passing Logic: More upvotes than downvotes
         if (p.upvotes > p.downvotes) {
             p.approved = true;
