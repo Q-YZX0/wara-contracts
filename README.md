@@ -1,4 +1,9 @@
 # Wara Smart Contracts
+This contracts are create for the Muggi/Wara Network.
+on these links 
+
+Muggi - https://github.com/Q-YZX0/Muggi
+Wara - https://github.com/Q-YZX0/Wara
 
 **Wara Smart Contracts** is the decentralized backbone of the Wara Network. It provides the source of truth for node discovery, a trustless economy for streaming, and a community-driven DAO for content management.
 
