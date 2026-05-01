@@ -78,7 +78,7 @@ contract WaraAirdrop is Ownable {
     }
 
     /**
-     * @notice Claim from a specific cycle
+     * @notice Claim reward for a specific cycle
      */
     function claim(uint256 cycleId, uint256 amount, bytes32[] calldata merkleProof) external {
         AirdropCycle storage cycle = cycles[cycleId];

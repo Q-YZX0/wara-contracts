@@ -38,9 +38,10 @@ Powers the community-owned catalog and link verification system.
 
 ### Essential Scripts
 We use Hardhat for all blockchain operations.
--   `npm run deploy:sepolia`: Re-deploys the entire ecosystem and wires the contracts.
--   `npm run fund`: Utility to send ETH/WARA to a development wallet.
--   `npm run seed`: Populates the `MediaRegistry` with a test catalog for the DAO.
+-   `npm run deploy:sepolia`: Re-deploys the entire ecosystem on Sepolia.
+-   `npm run fund`: Utility to send test ETH/WARA to a development wallet.
+-   `npm run seed`: Populates the `MediaRegistry` with a test catalog.
+-   `npx hardhat test`: Run the security and logic test suite.
 
 ### Configuration
 Update your `.env` file with the following:
